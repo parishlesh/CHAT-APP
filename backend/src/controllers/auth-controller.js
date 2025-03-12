@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs"
 
 export const signup = async (req, res) => {
     const { fullName, email, password } = req.body
+    console.log("req here", req.body)
     try {
         if (!fullName || !email || !password) {
             console.log("erroe here")
@@ -32,9 +33,12 @@ export const signup = async (req, res) => {
             email,
             password: hashedPassword
         })
+        console.log("user here", newUser)
+
         if (newUser) {
             //genertate jsonwebtoken here
             await newUser.save();
+            console.log("user saved here")
             generateToken(newUser._id, res)
             res.status(201).json({
                 message: "new user created",
