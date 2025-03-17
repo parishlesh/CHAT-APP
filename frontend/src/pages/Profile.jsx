@@ -66,7 +66,7 @@ const Profile = () => {
     setSelectedImg(resizedImage);
     await updateProfile({ profilePic: resizedImage });
   };
-
+ 
 
   return (
    <>

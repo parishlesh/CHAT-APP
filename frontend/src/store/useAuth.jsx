@@ -88,6 +88,6 @@ export const useAuth = create((set) => ({
             set({isUpdatingProfile: false})
         }
 
-    }
+    },
 
     }))
