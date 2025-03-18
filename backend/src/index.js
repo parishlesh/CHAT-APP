@@ -24,7 +24,7 @@ app.use(express.json({ limit: "10mb" })); // ✅ Increase limit for JSON request
 app.use(express.urlencoded({ limit: "10mb", extended: true })); // ✅ Increase for form data
 
 app.use("/api/auth", authRoutes);
-app.use('/api/messageRoute', messageRoute)
+app.use('/api/messages', messageRoute)
 
 app.use((req, res, next) => {
     console.log("Request Size:", req.headers['content-length']);
