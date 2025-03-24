@@ -40,12 +40,31 @@ export const sendMessage = async (req, res) => {
 
         const senderId = req.user._id;
 
+        console.log("Received data:", { text, image: image ? "Image exists" : "No image" });
+
+        if (!text?.trim() && !image) {
+            return res.status(400).json({ message: "Message text or image is required." });
+        }
+
         let imgUrl;
+        
+        if (image) {
 
-        // upload base64 image to cloudinary 
-        const uploadResponse = await cloudinary.uploader.upload(image);
-
-        imgUrl = uploadResponse.secure_url;
+            try {
+                
+                console.log("Uploading image to Cloudinary...");
+                const uploadResponse = await cloudinary.uploader.upload(image,{
+                    folder: "chat-images",
+                    resource_type: "image",
+                });
+                 imgUrl = uploadResponse.secure_url;
+                console.log("Cloudinary upload success:", imgUrl);
+            }
+            catch (uploadError) {
+                console.error("claudnary error: ", uploadError.message);
+                return res.status(500).json({message: "failed to upload image"})      
+            }
+        }
 
         const newMessage = new Message({
             senderId,
@@ -62,8 +81,8 @@ export const sendMessage = async (req, res) => {
         res.status(201).json(newMessage)
 
     } catch (error) {
-        cosnole.error("error in sendMessage controller: ",error.message)
         res.status(500).json({message: "internal server error"});
+         cosnole.error("error in sendMessage controller: ",error.message)
     }
 }
 
