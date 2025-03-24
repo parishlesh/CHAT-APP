@@ -3,14 +3,11 @@ import dotenv from "dotenv"
 import authRoutes from "./routes/auth-route.js";
 import connectDB from "./lib/db.js";
 import cookieParser from "cookie-parser"
-import messageRoute from "./routes/message.-route.js"
+import messageRoute from "./routes/message-route.js"
 import cors from "cors";
 
 dotenv.config()
 const app = express();
-
-app.use(express.json());
-app.use(cookieParser());
 
 app.use(cors({
     origin: "http://localhost:5173",
@@ -20,8 +17,12 @@ app.use(cors({
 }));
 app.options("*", cors());
 
-app.use(express.json({ limit: "10mb" })); // ✅ Increase limit for JSON requests
-app.use(express.urlencoded({ limit: "10mb", extended: true })); // ✅ Increase for form data
+
+app.use(express.json());
+app.use(cookieParser());
+
+app.use(express.json({ limit: "50mb" })); // ✅ Increase limit for JSON requests
+app.use(express.urlencoded({ limit: "50mb", extended: true })); // ✅ Increase for form data
 
 app.use("/api/auth", authRoutes);
 app.use('/api/messages', messageRoute)
