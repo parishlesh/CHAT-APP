@@ -2,6 +2,7 @@
 import { THEMES } from "../cosntants";
 import { useThemeStore } from "../store/useThemeStore";
 import { Send } from "lucide-react";
+import ScrollContainer from "../components/scrollbarContainer";
 
 const PREVIEW_MESSAGES = [
   { id: 1, content: "Hey! whats going on?", isSent: false },
@@ -12,6 +13,8 @@ const Settings = () => {
   const { theme, setTheme } = useThemeStore();
 
   return (
+    <ScrollContainer className="w-full h-full overflow-hidden">
+
     <div className="h-screen container mx-auto px-4 pt-20 max-w-5xl">
       <div className="space-y-6">
         <div className="flex flex-col gap-1">
@@ -22,13 +25,13 @@ const Settings = () => {
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
           {THEMES.map((t) => (
             <button
-              key={t}
-              className={`
-                group flex flex-col items-center gap-1.5 p-2 rounded-lg transition-colors
+            key={t}
+            className={`
+              group flex flex-col items-center gap-1.5 p-2 rounded-lg transition-colors
                 ${theme === t ? "bg-base-200" : "hover:bg-base-200/50"}
-              `}
-              onClick={() => setTheme(t)}
-            >
+                `}
+                onClick={() => setTheme(t)}
+                >
               <div className="relative h-8 w-full rounded-md overflow-hidden" data-theme={t}>
                 <div className="absolute inset-0 grid grid-cols-4 gap-px p-1">
                   <div className="rounded bg-primary"></div>
@@ -68,21 +71,21 @@ const Settings = () => {
                 <div className="p-4 space-y-4 min-h-[200px] max-h-[200px] overflow-y-auto bg-base-100">
                   {PREVIEW_MESSAGES.map((message) => (
                     <div
-                      key={message.id}
-                      className={`flex ${message.isSent ? "justify-end" : "justify-start"}`}
+                    key={message.id}
+                    className={`flex ${message.isSent ? "justify-end" : "justify-start"}`}
                     >
                       <div
                         className={`
                           max-w-[80%] rounded-xl p-3 shadow-sm
                           ${message.isSent ? "bg-primary text-primary-content" : "bg-base-200"}
-                        `}
-                      >
+                          `}
+                          >
                         <p className="text-sm">{message.content}</p>
                         <p
                           className={`
                             text-[10px] mt-1.5
                             ${message.isSent ? "text-primary-content/70" : "text-base-content/70"}
-                          `}
+                            `}
                         >
                           12:00 PM
                         </p>
@@ -100,7 +103,7 @@ const Settings = () => {
                       placeholder="Type a message..."
                       value="This is a preview"
                       readOnly
-                    />
+                      />
                     <button className="btn btn-primary h-10 min-h-0">
                       <Send size={18} />
                     </button>
@@ -112,6 +115,7 @@ const Settings = () => {
         </div>
       </div>
     </div>
+                      </ScrollContainer>
   );
 };
 export default Settings;

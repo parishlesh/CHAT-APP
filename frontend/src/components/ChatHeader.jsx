@@ -10,35 +10,37 @@ const ChatHeader = () => {
   }
 
   return (
-    <div className="flex items-center justify-between p-4 border-b border-gray-300 bg-white dark:bg-gray-800 shadow-sm">
-      <div className="flex items-center gap-3">
-        {/* Back Button for Mobile View */}
-        <button
-          onClick={() => setSelectedUser(null)}
-          className="lg:hidden p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
-        >
-          <ArrowLeft className="size-6 text-gray-600 dark:text-white" />
-        </button>
-        
-        {/* User Info */}
-        <img
-          src={selectedUser.profilePic || "/avatar.png"}
-          alt={selectedUser.fullName}
-          className="size-10 object-cover rounded-full"
-        />
-        <div>
-          <div className="font-medium text-gray-900 dark:text-white">{selectedUser.fullName}</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            {selectedUser.isOnline ? "Online" : "Offline"}
-          </div>
-        </div>
-      </div>
-      
-      {/* More Options Button */}
-      <button className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
-        <MoreVertical className="size-6 text-gray-600 dark:text-white" />
-      </button>
+<div className="flex items-center justify-between  w-full py-4 shadow-sm bg-base-100"
+  data-theme="{theme}">
+  <div className="flex items-center gap-4">
+    <button
+      onClick={() => setSelectedUser(null)}
+      className=" p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+      aria-label="Back"
+    >
+      <ArrowLeft className="w-6 h-6" />
+    </button>
+    
+    <img
+      src={selectedUser?.profilePic || "/avatar.png"}
+      alt={selectedUser?.fullName}
+      className="w-10 h-10 rounded-full object-cover"
+    />
+    
+    <div>
+      <p className="font-semibold">{selectedUser?.fullName}</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400">
+        {selectedUser?.isOnline ? "Online" : "Offline"}
+      </p>
     </div>
+  </div>
+
+  <button className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="More options">
+    <MoreVertical className="w-6 h-6" />
+  </button>
+</div>
+
+
   );
 };
 
