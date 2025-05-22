@@ -1,6 +1,7 @@
 import toast from "react-hot-toast";
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
+import { useAuth } from "./useAuth";
 
 
 
@@ -10,13 +11,14 @@ export const useChatStore = create((set, get) => ({
     selectedUser: null,
     isUserLoading: false, 
     isMessageLoading: false,
+    chatList: [],
 
-    // Fetch all users
+
     getUsers: async () => {
         set({ isUserLoading: true });
         try {
             const res = await axiosInstance.get("/messages/users");
-            set({ users: res.data }); // ✅ Fixed key (was 'user', now 'users')
+            set({ users: res.data }); 
         } catch (error) {
             toast.error(error.response?.data?.message || "Failed to fetch users.");
         } finally {
@@ -50,8 +52,43 @@ export const useChatStore = create((set, get) => ({
         }
     },
 
-    // Set selected user //optimization later
+
+    subscribeToMessages: () => {
+        const {selectedUser} = get()
+
+        if(!selectedUser) {
+            console.error("No selected user to subscribe to messages.");
+            return;
+        }
+
+        const socket = useAuth.getState().socket;
+
+        socket.on("newMessage", (newMessage) => {
+            const isMessageSentFromSelectedUser = newMessage.senderId === selectedUser._id;
+            if(!isMessageSentFromSelectedUser) return;
+
+           set({
+            messages: [...get().messages, newMessage]
+        })
+        });
+    },
+
+    unsubscribeFromMessages: () => {
+        const socket = useAuth.getState().socket;
+
+        socket.off("newMessage")
+    },
+
+
     setSelectedUser: (selectedUser) => {
         set({ selectedUser: selectedUser });
+    },
+
+
+    setChatList: (chatList) => {
+        const sortedChats = chatList.sort(
+            (a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)
+          );
+          set({ chatList: sortedChats });
     },
 }));
