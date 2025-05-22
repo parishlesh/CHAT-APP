@@ -1,3 +1,25 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.scrollbar-hidden::-webkit-scrollbar {
+    width: 0;
+    background: transparent;
+  }
+  
+  .scrollbar-visible::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .scrollbar-visible::-webkit-scrollbar-thumb {
+    background-color: rgba(100, 100, 100, 0.4);
+    border-radius: 6px;
+  }
+  
+  .scrollbar-visible {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 100, 100, 0.5) transparent;
+}
+.scrollbar-hidden {
+  scrollbar-width: none;
+}
