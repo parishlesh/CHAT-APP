@@ -1,109 +1,81 @@
-import { useState } from 'react'
-import { useAuth } from '../store/useAuth';
-import AuthImagePattern from '../components/AuthImagePattern';
-import toast from 'react-hot-toast';
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import toast from "react-hot-toast";
+import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, SkipForward } from "lucide-react";
+import { useAuth } from "../store/useAuth";
+import { axiosInstance } from "../lib/axios";
+
+const steps = [
+  { key: "fullName", label: "What's your name?", type: "text", placeholder: "Full name" },
+  { key: "username", label: "Choose a username", type: "text", placeholder: "username" },
+  { key: "email", label: "What's your email?", type: "email", placeholder: "you@example.com" },
+  { key: "password", label: "Create a password", type: "password", placeholder: "At least 6 characters" },
+  { key: "profilePic", label: "Add a profile picture", type: "file", optional: true },
+  { key: "about", label: "Tell people about yourself", type: "textarea", placeholder: "A short bio", optional: true },
+  { key: "phone", label: "Add your phone number", type: "tel", placeholder: "Phone number", optional: true },
+];
 
 const Signup = () => {
-    const [showPassword, setShowPassword] = useState(false);
-    const [formData, setFormData] = useState({
-        fullName: "",
-        email: "",
-        password: "",
-    })
+  const [step, setStep] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
+  const [usernameStatus, setUsernameStatus] = useState("");
+  const [formData, setFormData] = useState({ fullName: "", username: "", email: "", password: "", profilePic: "", about: "", phone: "" });
+  const { isSignup, isSigningUp } = useAuth();
+  const current = steps[step];
 
-    const { isSignup } = useAuth()
+  useEffect(() => {
+    if (current.key !== "username") return;
+    const username = formData.username.trim();
+    if (username.length < 3) return setUsernameStatus(username ? "Username must be at least 3 characters" : "");
+    setUsernameStatus("Checking…");
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await axiosInstance.get(`/auth/check-username/${encodeURIComponent(username)}`);
+        setUsernameStatus(data.available ? "Available" : "This username is already taken");
+      } catch { setUsernameStatus("Unable to check username"); }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [current.key, formData.username]);
 
-    const validateForm = () => {
-        //validation here
-        if (!formData.fullName.trim()) {
-            return toast.error("fullname is required")
-        }
-        if (!formData.email.trim()) {
-            return toast.error("email is required")
+  const update = (value) => setFormData((previous) => ({ ...previous, [current.key]: value }));
+  const validate = () => {
+    const value = formData[current.key];
+    if (current.optional) return true;
+    if (!String(value).trim()) return toast.error(`${current.label} is required`);
+    if (current.key === "username" && (usernameStatus !== "Available" || !/^[a-zA-Z0-9_]{3,30}$/.test(value))) return toast.error("Choose an available username (letters, numbers, and underscores only)");
+    if (current.key === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return toast.error("Enter a valid email");
+    if (current.key === "password" && value.length < 6) return toast.error("Password must be at least 6 characters");
+    return true;
+  };
+  const next = async () => {
+    if (!validate()) return;
+    if (step === steps.length - 1) return isSignup(formData);
+    setStep((value) => value + 1);
+  };
+  const onFile = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => update(reader.result);
+    reader.readAsDataURL(file);
+  };
 
-        }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-            return toast.error("invalid email format")
-        }
-        if (formData.password.length<6) {
-            return toast.error("Password must be atleast 6 character")
-        }
-        return true
-    }
-        
-        const handleChange = (e) => {
-            setFormData({ ...formData, [e.target.name]: e.target.value })
-        }
+  return <div className="min-h-screen flex items-center justify-center bg-base-200 p-4">
+    <div className="card w-full max-w-md bg-base-100 shadow-xl"><div className="card-body">
+      <p className="text-sm text-base-content/60">Step {step + 1} of {steps.length}</p>
+      <progress className="progress progress-primary w-full" value={step + 1} max={steps.length} />
+      <h1 className="card-title text-2xl mt-3">{current.label}</h1>
+      <div className="py-3">
+        {current.type === "file" ? <><input type="file" accept="image/*" onChange={onFile} className="file-input file-input-bordered w-full" />{formData.profilePic && <img src={formData.profilePic} alt="Preview" className="w-20 h-20 rounded-full object-cover mt-3" />}</> : current.type === "textarea" ? <textarea value={formData.about} onChange={(e) => update(e.target.value)} placeholder={current.placeholder} className="textarea textarea-bordered w-full" maxLength="250" /> : <div className="relative"><input type={current.key === "password" && showPassword ? "text" : current.type} value={formData[current.key]} onChange={(e) => update(e.target.value)} placeholder={current.placeholder} className="input input-bordered w-full" autoFocus />{current.key === "password" && <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>}</div>}
+        {current.key === "username" && <p className={`text-sm mt-2 ${usernameStatus === "Available" ? "text-success" : "text-error"}`}>{usernameStatus}</p>}
+      </div>
+      <div className="flex gap-2 justify-between">
+        {step ? <button onClick={() => setStep((value) => value - 1)} className="btn btn-ghost"><ArrowLeft size={18}/> Back</button> : <span />}
+        <div className="flex gap-2">{current.optional && <button onClick={next} className="btn btn-ghost"><SkipForward size={18}/> Skip</button>}<button onClick={next} disabled={isSigningUp} className="btn btn-primary">{step === steps.length - 1 ? <><Check size={18}/> Create account</> : <>Continue <ArrowRight size={18}/></>}</button></div>
+      </div>
+      <p className="text-center text-sm mt-4">Already have an account? <Link to="/login" className="link link-primary">Log in</Link></p>
+    </div></div>
+  </div>;
+};
 
-        const handleSubmit = async (e) => {
-            e.preventDefault()
-            const success = validateForm()
-            if(success === true){
-               await isSignup(formData)
-            }
-        }
-
-        return (
-            <div>
-                <div className="flex justify-center items-center min-h-screen bg-gray-100 px-4">
-                    <div className="bg-white p-6 rounded-lg shadow-md w-full max-w-md">
-                        <h2 className="text-2xl font-bold text-center mb-4">Signup</h2>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium">Full Name</label>
-                                <input
-                                    type="text"
-                                    name="fullName"
-                                    value={formData.fullName}
-                                    onChange={handleChange}
-                                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium">Email</label>
-                                <input
-                                    type="email"
-                                    name="email"
-                                    value={formData.email}
-                                    onChange={handleChange}
-                                    className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium">Password</label>
-                                <div className="relative">
-                                    <input
-                                        type={showPassword ? "text" : "password"}
-                                        name="password"
-                                        value={formData.password}
-                                        onChange={handleChange}
-                                        className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                        required
-                                    />
-                                    <button
-                                        type="button"
-                                        className="absolute right-2 top-2 text-sm"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                    >
-                                        {showPassword ? "Hide" : "Show"}
-                                    </button>
-                                </div>
-                            </div>
-                            <button
-                                type="submit"
-                                className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition"
-                            >
-                                Signup
-                            </button>
-                        </form>
-                    </div>
-                </div>
-                <AuthImagePattern
-                    title="xyz something"
-                    subtitle="abc something" />
-            </div>
-        )
-}
-    export default Signup
+export default Signup;

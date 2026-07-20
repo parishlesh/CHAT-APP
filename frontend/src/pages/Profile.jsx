@@ -8,6 +8,8 @@ const Profile = () => {
   const [selectedImg, setSelectedImg] = useState(null)
   const [editing, setEditing] = useState(false)
   const [about, setAbout] = useState(authUser.about || "")
+  const [username, setUsername] = useState(authUser.username || "")
+  const [phone, setPhone] = useState(authUser.phone || "")
 
   const resizeImage = (file, maxWidth, maxHeight) => {
     return new Promise((resolve) => {
@@ -49,9 +51,9 @@ const Profile = () => {
   };
 
 
-  const handleEdit = () => {
-    if (editing && about !== (authUser.about || "")) {
-      updateProfile({ about });
+  const handleEdit = async () => {
+    if (editing) {
+      await updateProfile({ about, username, phone });
     }
     setEditing((prev) => !prev);
   };
@@ -91,6 +93,10 @@ const Profile = () => {
       </div>
 
       <div className="m-6">
+        <div className="mt-6 w-full">
+          <label className="text-lg">Username</label>
+          <input disabled={!editing} value={username} onChange={(e) => setUsername(e.target.value)} className="input input-bordered w-full mt-2" />
+        </div>
         <div className="mt-6 w-full flex items-center justify-between gap-2 ">
           <div className="flex items-center gap-2">
 
@@ -113,6 +119,10 @@ const Profile = () => {
           placeholder="No bio available."
           className="textarea textarea-bordered w-full resize-none"
           />
+        </div>
+        <div className="mt-6 w-full">
+          <label className="text-lg">Phone number</label>
+          <input disabled={!editing} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="No phone number" className="input input-bordered w-full mt-2" />
         </div>
       </div>
     </>

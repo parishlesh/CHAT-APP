@@ -9,10 +9,12 @@ const Home = () => {
 
 
   return (
- <>
+ <div className="flex h-screen w-full overflow-hidden">
+      <main className="min-w-0 flex-1">
         {!selectedUser ? <NoChatSelected /> : <ChatContainer />}
+      </main>
       <Sidebar />
- </>
+ </div>
   );
 };
 

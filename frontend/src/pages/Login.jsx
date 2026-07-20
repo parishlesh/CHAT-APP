@@ -27,16 +27,15 @@ const Login = () => {
         <h2 className="text-2xl font-semibold text-center text-gray-700 mb-4">Login</h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Email Input */}
           <div>
-            <label className="block text-sm font-medium text-gray-600">Email</label>
+            <label className="block text-sm font-medium text-gray-600">Email or username</label>
             <input
-              type="email"
+              type="text"
               name="email"
               value={formData.email}
               onChange={handleChange}
               className="w-full mt-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-400 outline-none"
-              placeholder="Enter your email"
+              placeholder="Enter your email or username"
               required
             />
           </div>

@@ -8,7 +8,7 @@ import MessageSkeleton from './skeleton/MessageSkeleton';
 import ScrollContainer from './scrollbarContainer';
 
 const ChatContainer = () => {
-  const { messages, getMessages, isMessageLoading, selectedUser, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
+  const { messages, getMessages, isMessageLoading, selectedUser } = useChatStore();
   const { authUser } = useAuth();
   const { theme } = useThemeStore();
 
@@ -17,11 +17,7 @@ const ChatContainer = () => {
       getMessages(selectedUser._id);
     }
 
-    subscribeToMessages();
-
-    return () => unsubscribeFromMessages();
-
-  }, [selectedUser?._id, getMessages, subscribeToMessages, unsubscribeFromMessages]);
+  }, [selectedUser?._id, getMessages]);
 
   if (isMessageLoading) {
     return (
