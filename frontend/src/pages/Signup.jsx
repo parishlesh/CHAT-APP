@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../store/useAuth';
 import AuthImagePattern from '../components/AuthImagePattern';
 import toast from 'react-hot-toast';

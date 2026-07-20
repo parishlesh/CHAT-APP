@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useAuth } from "../store/useAuth.jsx";
 import { Link } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
@@ -75,7 +75,7 @@ const Login = () => {
 
         {/* Sign Up Link */}
         <p className="text-center text-sm text-gray-600 mt-4">
-          Don't have an account?{" "}
+          Don&apos;t have an account?{" "}
           <Link to="/signup" className="text-blue-500 hover:underline">
             Sign up
           </Link>

@@ -1,14 +1,14 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useChatStore } from '../store/useChatStore';
 import { useAuth } from '../store/useAuth';
 import { useThemeStore } from '../store/useThemeStore';
-import ChatHeader from './chatHeader';
-import MessageInput from './messageInput';
+import ChatHeader from './ChatHeader';
+import MessageInput from './MessageInput';
 import MessageSkeleton from './skeleton/MessageSkeleton';
 import ScrollContainer from './scrollbarContainer';
 
 const ChatContainer = () => {
-  const { messages, getMessages, isMessagesLoading, selectedUser, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
+  const { messages, getMessages, isMessageLoading, selectedUser, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
   const { authUser } = useAuth();
   const { theme } = useThemeStore();
 
@@ -23,7 +23,7 @@ const ChatContainer = () => {
 
   }, [selectedUser?._id, getMessages, subscribeToMessages, unsubscribeFromMessages]);
 
-  if (isMessagesLoading) {
+  if (isMessageLoading) {
     return (
       <div className='flex-1 flex flex-col overflow-auto'>
         <ChatHeader />

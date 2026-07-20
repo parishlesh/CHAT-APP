@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useAuth } from '../store/useAuth'
-import { Camera, User, Info, Phone, Pencil } from "lucide-react";
+import { Camera, Info, Pencil } from "lucide-react";
 
 const Profile = () => {
 
@@ -50,6 +50,9 @@ const Profile = () => {
 
 
   const handleEdit = () => {
+    if (editing && about !== (authUser.about || "")) {
+      updateProfile({ about });
+    }
     setEditing((prev) => !prev);
   };
 
@@ -105,14 +108,11 @@ const Profile = () => {
           disabled={!editing}
           name="about" 
           id="about"
+          value={about}
           onChange={(e) => setAbout(e.target.value)}
-          placeholder={authUser.about || "No bio available."}
+          placeholder="No bio available."
           className="textarea textarea-bordered w-full resize-none"
-
-          >
-
-          
-          </textarea>
+          />
         </div>
       </div>
     </>

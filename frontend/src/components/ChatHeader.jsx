@@ -1,9 +1,12 @@
-import React from "react";
 import { ArrowLeft, MoreVertical } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
+import { useAuth } from "../store/useAuth";
+import { useThemeStore } from "../store/useThemeStore";
 
 const ChatHeader = () => {
   const { selectedUser, setSelectedUser } = useChatStore();
+  const { onlineUsers } = useAuth();
+  const { theme } = useThemeStore();
 
   if (!selectedUser) {
     return <div className="p-4 text-center text-gray-500">Select a user to start chatting</div>;
@@ -11,7 +14,7 @@ const ChatHeader = () => {
 
   return (
 <div className="flex items-center justify-between  w-full py-4 shadow-sm bg-base-100"
-  data-theme="{theme}">
+  data-theme={theme}>
   <div className="flex items-center gap-4">
     <button
       onClick={() => setSelectedUser(null)}
@@ -30,7 +33,7 @@ const ChatHeader = () => {
     <div>
       <p className="font-semibold">{selectedUser?.fullName}</p>
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        {selectedUser?.isOnline ? "Online" : "Offline"}
+        {onlineUsers.includes(selectedUser?._id) ? "Online" : "Offline"}
       </p>
     </div>
   </div>

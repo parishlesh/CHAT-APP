@@ -1,18 +1,18 @@
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { useChatStore } from "../store/useChatStore";
+import { useAuth } from "../store/useAuth";
 import SidebarSkeleton from "./skeleton/SidebarSkeleton";
 import { Users } from "lucide-react";
-import axios from "axios";
+import { axiosInstance } from "../lib/axios";
 import { useThemeStore } from "../store/useThemeStore";
 
 
 const Sidebar = () => {
-  const { getUsers, users, selectedUser, setSelectedUser, isUserLoading, chatList, setChatList } =
+  const { getUsers, users, selectedUser, setSelectedUser, isUserLoading, setChatList } =
     useChatStore();
 
       const { theme } = useThemeStore();
-
-  const onlineUser = [];
+      const { onlineUsers } = useAuth();
 
   useEffect(() => {
     getUsers();
@@ -21,10 +21,7 @@ const Sidebar = () => {
   useEffect(() => {
     const fetchChats = async () => {
       try {
-        const res = await axios.get(
-          "http://localhost:5001/api/messages/conversations",
-          { withCredentials: true }
-        );
+        const res = await axiosInstance.get("/messages/conversations");
         setChatList(res.data);
       } catch (error) {
         console.error("Failed to fetch chats:", error);
@@ -32,7 +29,7 @@ const Sidebar = () => {
     };
 
     fetchChats();
-  }, []);
+  }, [setChatList]);
 
   if (isUserLoading) {
     return <SidebarSkeleton />;
@@ -76,9 +73,10 @@ const Sidebar = () => {
           <div className="relative">
             <img
               src={user.profilePic || "/avatar.png"}
+              alt={user.fullName}
               className="w-12 h-12 rounded-full object-cover border border-gray-300"
             />
-            {onlineUser.includes(user._id) && (
+            {onlineUsers.includes(user._id) && (
               <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full ring-2 ring-white" />
             )}
           </div>
@@ -86,7 +84,7 @@ const Sidebar = () => {
           <div className="flex flex-col min-w-0 text-left">
             <p className="font-medium truncate">{user.fullName}</p>
             <p className="text-sm text-gray-500 truncate">
-              {onlineUser.includes(user._id) ? "Online" : "Offline"}
+              {onlineUsers.includes(user._id) ? "Online" : "Offline"}
             </p>
           </div>
         </button>

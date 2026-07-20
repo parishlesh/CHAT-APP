@@ -1,6 +1,4 @@
 import mongoose from "mongoose";
-import User from "./user-model.js";
-import { text } from "express";
 
 const messageSchema = new mongoose.Schema(
     {

@@ -1,4 +1,3 @@
-import React from "react";
 import { useAuth } from "../store/useAuth";
 import { Link } from "react-router-dom";
 import { LogOut, User, Settings } from "lucide-react";
@@ -9,6 +8,8 @@ const Navbar = () => {
 
   const { theme } = useThemeStore()
 
+  if (!authUser) return null;
+
   return (
     <div
       className="fixed h-screen w-[20%] p-5 flex flex-col justify-between shadow-lg"
@@ -18,7 +19,7 @@ const Navbar = () => {
         <div className="flex items-center gap-3 mb-6">
           <div className="avatar">
             <div className="w-12 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
-              <img src={authUser.profilePic} />
+              <img src={authUser.profilePic || "/avatar.png"} alt="" />
             </div>
           </div>
           <div>
@@ -32,16 +33,8 @@ const Navbar = () => {
             <Link to="/" className="flex items-center gap-3 text-base-content hover:bg-base-300 rounded-lg px-3 py-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor"><path d="..." /></svg>
               Messages
-              <span className="badge badge-sm badge-error ml-auto">14</span>
             </Link>
           </li>
-          <li>
-            <Link to="/privacy" className="flex items-center gap-3 text-base-content hover:bg-base-300 rounded-lg px-3 py-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor"><path d="..." /></svg>
-              Privacy & Security
-            </Link>
-          </li>
-
         </ul>
       </div>
 

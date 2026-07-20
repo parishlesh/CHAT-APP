@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { Send, Image as ImageIcon, XCircle } from "lucide-react";
+import toast from "react-hot-toast";
 
 const MessageInput = () => {
   const [text, setText] = useState("");
   const [selectedImages, setSelectedImages] = useState([]);
-  const { messages, sendMessage } = useChatStore();
+  const { sendMessage } = useChatStore();
 
   const fileInputRef = useRef(null)
 
@@ -103,23 +104,15 @@ const MessageInput = () => {
     }
   };
 
-  const convertToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = (error) => reject(error);
-    });
-};
-
   return (
-<div className="flex flex-col p-4 shadow-inner w-full">
+<form onSubmit={handleSendMessage} className="flex flex-col p-4 shadow-inner w-full">
   {selectedImages.length > 0 && (
     <div className="flex space-x-3 mb-3 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-200 p-2">
       {selectedImages.map((image, index) => (
         <div key={index} className="relative flex-shrink-0 h-16 w-16 rounded-lg overflow-hidden shadow-md">
           <img src={URL.createObjectURL(image)} alt="Preview" className="w-full h-full object-cover" />
           <button
+            type="button"
             onClick={() => removeImage(index)}
             className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 text-white rounded-full p-1 shadow-lg transition"
           >
@@ -139,16 +132,16 @@ const MessageInput = () => {
     />
     <label className="cursor-pointer bg-gray-200 p-3 rounded-lg hover:bg-gray-300 transition">
       <ImageIcon size={22} />
-      <input type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelection} />
+      <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelection} />
     </label>
     <button
-      onClick={handleSendMessage}
+      type="submit"
       className="p-3 bg-primary text-primary-content rounded-lg hover:bg-primary-focus transition"
     >
       <Send size={22} />
     </button>
   </div>
-</div>
+</form>
 
   );
 };

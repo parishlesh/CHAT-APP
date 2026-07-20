@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios.jsx";
 import toast from "react-hot-toast";
-import { data } from "react-router-dom";
 // import { socket } from "../lib/socket";
 import {io} from "socket.io-client";
 
@@ -11,7 +10,7 @@ export const useAuth = create((set, get) => ({
     authUser: null,
     isSigningUp: false,
     isLoggingIn: false,
-    isUpdatindProfile: false,
+    isUpdatingProfile: false,
     isCheckingAuth: true,
     onlineUsers: [],
     socket: null,
@@ -41,7 +40,7 @@ export const useAuth = create((set, get) => ({
             get().connectSocket()
 
         } catch (error) {
-            toast.error(error.response.data.message)
+            toast.error(error.response?.data?.message || "Signup failed.")
             console.log("error in signup");
 
         }
@@ -59,7 +58,7 @@ export const useAuth = create((set, get) => ({
             toast.success("logged out successfully")
             get().disconnectSocket()
         } catch (error) {
-            toast.error(error.response.data.message)
+            toast.error(error.response?.data?.message || "Logout failed.")
             console.error("Logout failed:", error);
         }
     },
@@ -74,7 +73,7 @@ export const useAuth = create((set, get) => ({
             get().connectSocket();
 
         } catch (error) {
-            toast.error(error.response.data.message, "Login failed");
+            toast.error(error.response?.data?.message || "Login failed.");
         } finally {
             set({ isLoggingIn: false });
         }
@@ -92,7 +91,7 @@ export const useAuth = create((set, get) => ({
             toast.success("profile updated successfully")
         } catch (error) {
             console.log("error in update profile: ", error)
-            toast.error(error.response.data.message)
+            toast.error(error.response?.data?.message || "Failed to update profile.")
 
         } finally {
             set({ isUpdatingProfile: false })
@@ -116,13 +115,6 @@ export const useAuth = create((set, get) => ({
       
         socket.on("getOnlineUsers", (userIds) => {
           set({ onlineUsers: userIds });
-        });
-      
-        socket.on("newMessage", (message) => {
-          console.log("New message received:", message);
-            const { currentChat } = get().message || [];
-            set({messages: [...currentChat, message] });
-           
         });
       },
       
