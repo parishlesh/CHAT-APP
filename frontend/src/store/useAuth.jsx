@@ -3,6 +3,7 @@ import { axiosInstance } from "../lib/axios.jsx";
 import toast from "react-hot-toast";
 // import { socket } from "../lib/socket";
 import {io} from "socket.io-client";
+import { ensureEncryptionKey } from "../lib/encryption";
 
 const BASE_URL = import.meta.env.MODE === "development" ? "http://localhost:5001" : "/";
 
@@ -19,7 +20,8 @@ export const useAuth = create((set, get) => ({
         try {
             const res = await axiosInstance.get("/auth/check")
 
-            set({ authUser: res.data })
+            const user = await ensureEncryptionKey(res.data, axiosInstance);
+            set({ authUser: user })
             get().connectSocket()
 
         } catch (error) {
@@ -33,9 +35,8 @@ export const useAuth = create((set, get) => ({
         set({ isSigningUp: true });
         try {
             const res = await axiosInstance.post("/auth/signup", data)
-            set({
-                authUser: res.data,
-            })
+            const user = await ensureEncryptionKey(res.data, axiosInstance);
+            set({ authUser: user })
             toast.success("account created successfully")
             get().connectSocket()
 
@@ -67,7 +68,8 @@ export const useAuth = create((set, get) => ({
         set({ isLoggingIn: true });
         try {
             const res = await axiosInstance.post("/auth/login", data);
-            set({ authUser: res.data });
+            const user = await ensureEncryptionKey(res.data, axiosInstance);
+            set({ authUser: user });
             toast.success("Logged in successfully");
 
             get().connectSocket();

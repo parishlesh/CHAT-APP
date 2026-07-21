@@ -6,6 +6,7 @@ import {
   logout,
   signup,
   updateProfile,
+  updateEncryptionKey,
 } from "../controllers/auth-controller.js";
 
 import protectRoute from "../middleware/auth-middleware.js";
@@ -22,6 +23,7 @@ router.get("/check-username/:username", checkUsername);
 
 // Protected
 router.put("/update-profile", protectRoute, updateProfile);
+router.put("/encryption-key", protectRoute, updateEncryptionKey);
 router.get("/check", protectRoute, checkAuth);
 
 export default router;

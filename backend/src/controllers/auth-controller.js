@@ -146,6 +146,9 @@ export const logout = (req, res) => {
     try {
         res.cookie("jwt", "", {
             maxAge: 0,
+            httpOnly: true,
+            sameSite: "none",
+            secure: process.env.NODE_ENV === "production",
         });
 
         res.status(200).json({
@@ -247,4 +250,21 @@ export const checkUsername = async (req, res) => {
 
 export const checkAuth = (req, res) => {
     res.status(200).json(req.user);
+};
+
+export const updateEncryptionKey = async (req, res) => {
+    try {
+        const { encryptionPublicKey } = req.body;
+        if (!encryptionPublicKey?.kty || !encryptionPublicKey?.crv) {
+            return res.status(400).json({ message: "A valid public key is required." });
+        }
+        const user = await User.findByIdAndUpdate(
+            req.user._id,
+            { encryptionPublicKey },
+            { new: true }
+        ).select("-password");
+        res.status(200).json(user);
+    } catch (error) {
+        res.status(500).json({ message: "Internal Server Error" });
+    }
 };

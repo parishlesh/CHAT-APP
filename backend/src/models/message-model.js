@@ -34,11 +34,20 @@ const messageSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    edited: { type: Boolean, default: false },
+    deleted: { type: Boolean, default: false },
+
+    // TTL removes this document after its absolute expiration time.
+    expiresAt: { type: Date, default: null, index: { expireAfterSeconds: 0 } },
   },
   {
     timestamps: true,
   }
 );
+
+messageSchema.index({ text: "text" });
+messageSchema.index({ conversationId: 1, createdAt: 1 });
 
 const Message = mongoose.model(
   "Message",

@@ -1,14 +1,31 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
-import { Send, Image as ImageIcon, XCircle } from "lucide-react";
+import { Send, Image as ImageIcon, Timer, XCircle } from "lucide-react";
 import toast from "react-hot-toast";
+import { useAuth } from "../store/useAuth";
 
 const MessageInput = () => {
   const [text, setText] = useState("");
   const [selectedImages, setSelectedImages] = useState([]);
-  const { sendMessage } = useChatStore();
+  const [disappearing, setDisappearing] = useState(false);
+  const { sendMessage, selectedUser } = useChatStore();
+  const { socket } = useAuth();
 
   const fileInputRef = useRef(null)
+  const typingTimer = useRef(null);
+
+  const stopTyping = () => {
+    clearTimeout(typingTimer.current);
+    if (selectedUser && socket) socket.emit("stopTyping", { to: selectedUser._id, conversationId: selectedUser._id });
+  };
+  const handleTyping = (value) => {
+    setText(value);
+    if (!selectedUser || !socket) return;
+    socket.emit("typing", { to: selectedUser._id, conversationId: selectedUser._id });
+    clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(stopTyping, 1500);
+  };
+  useEffect(() => () => stopTyping(), [selectedUser, socket]);
 
   const handleImageSelection = (event) => {
     
@@ -93,9 +110,12 @@ const MessageInput = () => {
       const messageData = {
         text: text.trim() || "",
         image: imageData,
+        // Expiry is measured from send time. MongoDB's TTL monitor removes it later.
+        expiresAt: disappearing ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
       };
   
       await sendMessage(messageData);
+      stopTyping();
       setText("");
       setSelectedImages([]);
     } catch (error) {
@@ -126,10 +146,15 @@ const MessageInput = () => {
     <input
       type="text"
       value={text}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => handleTyping(e.target.value)}
+      onBlur={stopTyping}
       placeholder="Type a message..."
       className="flex-1 p-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition"
     />
+    <label className={`btn btn-square ${disappearing ? "btn-primary" : "btn-ghost"}`} title="Disappears 24 hours after sending">
+      <Timer size={20} />
+      <input type="checkbox" className="hidden" checked={disappearing} onChange={(event) => setDisappearing(event.target.checked)} />
+    </label>
     <label className="cursor-pointer bg-gray-200 p-3 rounded-lg hover:bg-gray-300 transition">
       <ImageIcon size={22} />
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelection} />

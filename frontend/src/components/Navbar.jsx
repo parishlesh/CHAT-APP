@@ -1,6 +1,6 @@
 import { useAuth } from "../store/useAuth";
 import { Link } from "react-router-dom";
-import { LogOut, User, Settings } from "lucide-react";
+import { LogOut, MessageSquare, User, Settings } from "lucide-react";
 import { useThemeStore } from "../store/useThemeStore";
 
 const Navbar = () => {
@@ -31,7 +31,7 @@ const Navbar = () => {
         <ul className="menu space-y-1">
           <li>
             <Link to="/" className="flex items-center gap-3 text-base-content hover:bg-base-300 rounded-lg px-3 py-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor"><path d="..." /></svg>
+              <MessageSquare size={20} />
               Messages
             </Link>
           </li>

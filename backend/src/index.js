@@ -1,29 +1,46 @@
 import express from "express";
-import dotenv from "dotenv"
+import dotenv from "dotenv";
 import authRoutes from "./routes/auth-route.js";
 import connectDB from "./lib/db.js";
-import cookieParser from "cookie-parser"
-import messageRoute from "./routes/message-route.js"
+import cookieParser from "cookie-parser";
+import messageRoute from "./routes/message-route.js";
 import cors from "cors";
-import {app, server} from "./lib/socket.js"
+import { app, server } from "./lib/socket.js";
 
-dotenv.config()
+dotenv.config();
 
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+const allowedOrigins = [
+    "http://localhost:5173",
+    process.env.CLIENT_URL,
+];
 
-app.use(cors({
-    origin: CLIENT_URL,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-}));
+app.use(
+    cors({
+        origin(origin, callback) {
+            // Allow requests without an Origin (Postman, server-to-server)
+            if (!origin) return callback(null, true);
+
+            if (
+                allowedOrigins.includes(origin) ||
+                origin.endsWith(".devtunnels.ms")
+            ) {
+                return callback(null, true);
+            }
+
+            return callback(new Error(`CORS blocked for origin: ${origin}`));
+        },
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+    })
+);
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(cookieParser());
 
 app.use("/api/auth", authRoutes);
-app.use('/api/messages', messageRoute)
+app.use("/api/messages", messageRoute);
 
 const PORT = process.env.PORT || 5001;
 

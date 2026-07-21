@@ -49,6 +49,9 @@ const userSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+
+    // Browser-generated ECDH P-256 public JWK. Private material never reaches this API.
+    encryptionPublicKey: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   {
     timestamps: true,

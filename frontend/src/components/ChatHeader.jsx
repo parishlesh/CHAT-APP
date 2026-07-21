@@ -4,7 +4,7 @@ import { useAuth } from "../store/useAuth";
 import { useThemeStore } from "../store/useThemeStore";
 
 const ChatHeader = () => {
-  const { selectedUser, setSelectedUser } = useChatStore();
+  const { selectedUser, setSelectedUser, typing } = useChatStore();
   const { onlineUsers } = useAuth();
   const { theme } = useThemeStore();
 
@@ -33,7 +33,7 @@ const ChatHeader = () => {
     <div>
       <p className="font-semibold">{selectedUser?.fullName}</p>
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        {onlineUsers.includes(selectedUser?._id) ? "Online" : "Offline"}
+        {typing ? `${selectedUser.fullName} is typing…` : onlineUsers.includes(selectedUser?._id) ? "Online" : "Offline"}
       </p>
     </div>
   </div>

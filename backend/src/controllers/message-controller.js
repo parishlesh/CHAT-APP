@@ -47,6 +47,20 @@ export const getMessages = async (req, res) => {
   try {
     const conversation = await Conversation.findOne(pairQuery(req.user._id, req.params.id));
     if (!conversation) return res.status(200).json([]);
+    const unseen = await Message.find({
+      conversationId: conversation._id,
+      senderId: { $ne: req.user._id },
+      seen: false,
+      deleted: false,
+    }).select("_id senderId");
+    if (unseen.length) {
+      await Message.updateMany({ _id: { $in: unseen.map((message) => message._id) } }, { $set: { seen: true } });
+      const senderId = unseen[0].senderId;
+      emitToUser(senderId, "messagesSeen", {
+        conversationId: conversation._id,
+        messageIds: unseen.map((message) => message._id.toString()),
+      });
+    }
     const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 });
     res.status(200).json(messages);
   } catch (error) {
@@ -55,9 +69,26 @@ export const getMessages = async (req, res) => {
   }
 };
 
+export const searchConversationMessages = async (req, res) => {
+  try {
+    const query = (req.query.q || "").trim();
+    const conversation = await Conversation.findOne(pairQuery(req.user._id, req.params.conversationId));
+    if (!conversation || !query) return res.status(200).json([]);
+    const messages = await Message.find({
+      conversationId: conversation._id,
+      deleted: false,
+      $text: { $search: query },
+    }, { score: { $meta: "textScore" } }).sort({ score: { $meta: "textScore" }, createdAt: 1 }).limit(50);
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error("search messages:", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 export const sendMessage = async (req, res) => {
   try {
-    const { text = "", image } = req.body;
+    const { text = "", image, expiresAt = null } = req.body;
     const senderId = req.user._id;
     const receiverId = req.params.id;
     if (!text.trim() && !image) return res.status(400).json({ message: "Message text or image is required." });
@@ -82,7 +113,11 @@ export const sendMessage = async (req, res) => {
       createdRequest = true;
     }
 
-    const message = await Message.create({ conversationId: conversation._id, senderId, receiverId, text: text.trim(), image: imageUrl });
+    const expiry = expiresAt ? new Date(expiresAt) : null;
+    if (expiry && (Number.isNaN(expiry.getTime()) || expiry <= new Date())) {
+      return res.status(400).json({ message: "Expiration must be a future date." });
+    }
+    const message = await Message.create({ conversationId: conversation._id, senderId, receiverId, text: text.trim(), image: imageUrl, expiresAt: expiry });
     conversation.lastMessage = message._id;
     await conversation.save();
 
@@ -97,6 +132,48 @@ export const sendMessage = async (req, res) => {
     res.status(201).json(message);
   } catch (error) {
     console.error("send message:", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+const ownedMessage = async (req, res) => {
+  const message = await Message.findOne({ _id: req.params.messageId, senderId: req.user._id });
+  if (!message) {
+    res.status(404).json({ message: "Message not found or not owned by you." });
+    return null;
+  }
+  return message;
+};
+
+export const editMessage = async (req, res) => {
+  try {
+    const message = await ownedMessage(req, res);
+    if (!message) return;
+    if (message.deleted) return res.status(400).json({ message: "Deleted messages cannot be edited." });
+    const text = (req.body.text || "").trim();
+    if (!text) return res.status(400).json({ message: "Message text is required." });
+    message.text = text;
+    message.edited = true;
+    await message.save();
+    emitToUser(message.receiverId, "messageEdited", message);
+    res.status(200).json(message);
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const deleteMessage = async (req, res) => {
+  try {
+    const message = await ownedMessage(req, res);
+    if (!message) return;
+    if (message.deleted) return res.status(400).json({ message: "Message is already deleted." });
+    message.deleted = true;
+    message.text = "";
+    message.image = "";
+    await message.save();
+    emitToUser(message.receiverId, "messageDeleted", { _id: message._id, conversationId: message.conversationId });
+    res.status(200).json(message);
+  } catch (error) {
     res.status(500).json({ message: "Internal server error" });
   }
 };
