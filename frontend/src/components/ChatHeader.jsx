@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { ArrowLeft, MoreVertical, Search, Smile } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, MoreVertical, Search, Smile } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
 import { useConversationThemeStore } from "../store/useConversationThemeStore";
 import { getMoodMeta } from "../lib/moods";
+import { requestNotificationPermission } from "../lib/notify";
 
 const ChatHeader = () => {
   const { selectedUser, setSelectedUser, typing, setMessageSearchOpen } = useChatStore();
   const { onlineUsers } = useAuth();
-  const { mine, openMoodPicker } = useConversationThemeStore();
+  const { mine, muted, openMoodPicker, setConversationMute } = useConversationThemeStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const myMood = getMoodMeta(mine?.mood);
 
@@ -18,24 +19,24 @@ const ChatHeader = () => {
 
   const status = typing ? (
     <span className="flex items-center gap-1">
-      typing
+      typing...
       <span className="typing-dots" aria-hidden="true"><i /><i /><i /></span>
     </span>
-  ) : onlineUsers.includes(selectedUser._id) ? "Online" : "Offline";
+  ) : onlineUsers.some((id) => String(id) === String(selectedUser._id)) ? "Online" : "Offline";
 
   return (
     <div className="relative flex h-14 shrink-0 items-center justify-between gap-2 border-b border-base-300 bg-base-100 px-2 sm:px-3">
       <div className="flex min-w-0 items-center gap-2">
         <button
           onClick={() => setSelectedUser(null)}
-          className="rounded-full p-2 hover:bg-base-200"
+          className="rounded-full p-2 hover:bg-base-200 md:hidden"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <img
           src={selectedUser.profilePic || "/avatar.png"}
-          alt=""
+          alt={selectedUser.fullName}
           className="h-9 w-9 shrink-0 rounded-full object-cover"
         />
         <div className="min-w-0">
@@ -56,6 +57,7 @@ const ChatHeader = () => {
         <button
           className="rounded-full p-2 hover:bg-base-200"
           aria-label="More options"
+          aria-haspopup="menu"
           aria-expanded={settingsOpen}
           onClick={() => setSettingsOpen((open) => !open)}
         >
@@ -75,6 +77,20 @@ const ChatHeader = () => {
             >
               <span className="flex items-center gap-2"><Smile size={16} /> Mood</span>
               <span className="text-xs opacity-70">{myMood ? `${myMood.emoji} ${myMood.label}` : "Set mood"}</span>
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200"
+              onClick={() => { setSettingsOpen(false); setConversationMute(selectedUser._id, !muted); }}
+            >
+              <span className="flex items-center gap-2">{muted ? <Bell size={16} /> : <BellOff size={16} />} {muted ? "Unmute" : "Mute"}</span>
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200"
+              onClick={async () => { setSettingsOpen(false); await requestNotificationPermission(); }}
+            >
+              <Bell size={16} /> Desktop alerts
             </button>
             <button
               type="button"

@@ -37,7 +37,7 @@ const MessageBubble = ({ message }) => {
   useEffect(() => () => clearPress(), []);
 
   return (
-    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+    <div id={`msg-${message._id}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
         className="group relative max-w-[80%] sm:max-w-[70%]"
         onContextMenu={(event) => { event.preventDefault(); openMenu(); }}
@@ -49,7 +49,7 @@ const MessageBubble = ({ message }) => {
           <button
             type="button"
             aria-label="Message actions"
-            className={`absolute top-1 ${mine ? "left-0 -translate-x-full" : "right-0 translate-x-full"} hidden rounded-full p-1 opacity-0 hover:bg-base-300 group-hover:opacity-100 md:inline-flex`}
+            className={`absolute top-0.5 z-10 rounded-full p-1 text-current/70 hover:bg-black/10 ${mine ? "left-0" : "right-0"} opacity-80 md:opacity-0 md:group-hover:opacity-100`}
             onClick={() => setMenuOpen((open) => !open)}
           >
             <MoreVertical size={16} />
@@ -57,7 +57,7 @@ const MessageBubble = ({ message }) => {
         )}
 
         <div
-          className={`px-2.5 py-1.5 shadow-none ${messageMatchIds.includes(message._id) ? "ring-2 ring-warning" : ""} ${
+          className={`px-2.5 py-1.5 shadow-none ${message.deleted ? "" : mine ? "pl-7" : "pr-7"} ${messageMatchIds.includes(message._id) ? "ring-2 ring-warning" : ""} ${
             mine
               ? "bg-primary text-primary-content rounded-lg rounded-br-none"
               : "bg-base-200 text-base-content rounded-lg rounded-bl-none"
@@ -81,16 +81,18 @@ const MessageBubble = ({ message }) => {
                 <img src={message.image} alt="Sent" className="mb-1 max-h-64 w-full max-w-[240px] rounded-md object-cover" />
               )}
               {message.displayText && (
-                <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">{message.displayText}</p>
+                <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[15px] leading-snug">{message.displayText}</p>
               )}
-              {message.edited && <span className="text-[11px] opacity-60">edited</span>}
+              {message.edited && <span className="text-[11px] opacity-60">(edited)</span>}
             </>
           )}
           <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px] opacity-70">
             <span>{formatMessageTime(message.createdAt)}</span>
             {message.expiresAt && !message.deleted && <Clock3 size={12} aria-label="Disappearing message" />}
             {mine && !message.deleted && (
-              message.seen
+              message.pending
+                ? <Clock3 size={12} aria-label="Sending" />
+                : message.seen
                 ? <CheckCheck size={14} className="text-info" aria-label="Seen" />
                 : <Check size={14} aria-label="Sent" />
             )}
@@ -126,12 +128,12 @@ const MessageBubble = ({ message }) => {
                     </button>
                   )}
                   {mine && message.displayText && (
-                    <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => { setEditingMessage(message); setMenuOpen(false); }}>
+                    <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" aria-label="Edit" onClick={() => { setEditingMessage(message); setMenuOpen(false); }}>
                       <Pencil size={14} /> Edit
                     </button>
                   )}
                   {mine && (
-                    <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-error hover:bg-base-200" onClick={() => setConfirmDelete(true)}>
+                    <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-error hover:bg-base-200" aria-label="Delete" onClick={() => setConfirmDelete(true)}>
                       <Trash2 size={14} /> Delete
                     </button>
                   )}

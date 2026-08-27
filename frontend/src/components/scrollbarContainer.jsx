@@ -1,35 +1,33 @@
 /* eslint-disable react/prop-types */
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useState } from "react";
 
-const ScrollContainer = ({ children, className = '' }) => {
-  const containerRef = useRef(null);
+const ScrollContainer = forwardRef(({ children, className = "", onScroll }, ref) => {
   const [showScrollbar, setShowScrollbar] = useState(false);
 
   useEffect(() => {
-    const ref = containerRef.current;
-    if (!ref) return;
-
+    const node = ref && typeof ref === "object" ? ref.current : null;
+    if (!node) return;
     const handleScroll = () => {
       setShowScrollbar(true);
-      clearTimeout(ref._timeout);
-      ref._timeout = setTimeout(() => setShowScrollbar(false), 1000);
+      clearTimeout(node._timeout);
+      node._timeout = setTimeout(() => setShowScrollbar(false), 1000);
     };
-
-    ref.addEventListener('scroll', handleScroll);
-    return () => {
-      ref.removeEventListener('scroll', handleScroll);
-    };
-  }, []);
+    node.addEventListener("scroll", handleScroll);
+    return () => node.removeEventListener("scroll", handleScroll);
+  }, [ref]);
 
   return (
     <div
-      ref={containerRef}
+      ref={ref}
+      onScroll={onScroll}
       className={`overflow-y-auto transition-[scrollbar-color] duration-500 ease-in-out 
-        ${showScrollbar ? 'scrollbar-visible' : 'scrollbar-hidden'} ${className}`}
+        ${showScrollbar ? "scrollbar-visible" : "scrollbar-hidden"} ${className}`}
     >
       {children}
     </div>
   );
-};
+});
+
+ScrollContainer.displayName = "ScrollContainer";
 
 export default ScrollContainer;

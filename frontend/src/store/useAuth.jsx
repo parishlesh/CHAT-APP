@@ -102,29 +102,39 @@ export const useAuth = create((set, get) => ({
 
     connectSocket: () => {
         const { authUser } = get();
-      
-        if (!authUser || get().socket?.connected) return;
-      
+        if (!authUser || get().socket) return;
+
         const socket = io(BASE_URL, {
+          withCredentials: true,
+          reconnection: true,
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 1000,
           query: {
             userId: authUser._id,
           },
         });
-      
-        socket.connect();
-      
-        set({ socket });
-      
+
         socket.on("getOnlineUsers", (userIds) => {
           set({ onlineUsers: userIds });
         });
-      },
-      
-    disconnectSocket: () => {
-        if (get().socket?.connected) {
-            get().socket.disconnect()
-            console.log("disconnected from socket server")
+        socket.on("connect", () => {
+          import("./useChatStore").then(({ useChatStore }) => {
+            const chat = useChatStore.getState();
+            chat.subscribeToMessages();
+            chat.getChats();
+            chat.getRequests();
+          });
+        });
 
+        set({ socket });
+      },
+
+    disconnectSocket: () => {
+        const socket = get().socket;
+        if (socket) {
+            socket.removeAllListeners();
+            socket.disconnect();
+            set({ socket: null, onlineUsers: [] });
         }
     },
 }))

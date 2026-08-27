@@ -53,7 +53,8 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.index({ text: "text" });
-messageSchema.index({ conversationId: 1, createdAt: 1 });
+messageSchema.index({ conversationId: 1, createdAt: -1 });
+messageSchema.index({ receiverId: 1, seen: 1, deleted: 1, conversationId: 1 });
 
 const Message = mongoose.model(
   "Message",

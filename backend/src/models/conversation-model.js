@@ -47,15 +47,21 @@ const conversationSchema = new mongoose.Schema(
       ),
       default: () => new Map(),
     },
+
+    mutedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   {
     timestamps: true,
   }
 );
 
-conversationSchema.index({
-  participants: 1,
-});
+conversationSchema.index({ participants: 1, status: 1, updatedAt: -1 });
+conversationSchema.index({ participants: 1, initiatedBy: 1, status: 1 });
 
 const Conversation = mongoose.model(
   "Conversation",

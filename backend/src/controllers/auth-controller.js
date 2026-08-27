@@ -79,7 +79,7 @@ export const signup = async (req, res) => {
             profilePic: user.profilePic,
         });
     } catch (error) {
-        console.log("Signup Error", error);
+        console.log("Signup failed");
         if (error.code === 11000) {
             return res.status(400).json({ message: "Email or username already exists" });
         }
@@ -134,7 +134,7 @@ export const login = async (req, res) => {
             profilePic: user.profilePic,
         });
     } catch (error) {
-        console.log("Login Error", error);
+        console.log("Login failed");
 
         res.status(500).json({
             message: "Internal Server Error",
@@ -147,8 +147,9 @@ export const logout = (req, res) => {
         res.cookie("jwt", "", {
             maxAge: 0,
             httpOnly: true,
-            sameSite: "none",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
             secure: process.env.NODE_ENV === "production",
+            path: "/",
         });
 
         res.status(200).json({
@@ -218,7 +219,7 @@ export const updateProfile = async (req, res) => {
             {
                 new: true,
             }
-        );
+        ).select("-password");
 
         res.status(200).json(user);
     } catch (error) {

@@ -7,6 +7,7 @@ const emptyMoodState = {
   selectedPeerId: null,
   mine: null,
   theirs: null,
+  muted: false,
   isMoodLoading: false,
   isMoodSaving: false,
   isPickerOpen: false,
@@ -36,6 +37,7 @@ export const useConversationThemeStore = create((set, get) => ({
         conversationId: data.conversationId,
         mine: data.mine,
         theirs: data.theirs,
+        muted: Boolean(data.muted),
         isMoodLoading: false,
       });
     } catch (error) {
@@ -59,6 +61,7 @@ export const useConversationThemeStore = create((set, get) => ({
         mine: data.mine,
         theirs: data.theirs,
         conversationId: data.conversationId,
+        muted: Boolean(data.muted),
         isMoodSaving: false,
       });
     } catch (error) {
@@ -66,6 +69,19 @@ export const useConversationThemeStore = create((set, get) => ({
         set({ mine: previous, isMoodSaving: false });
       }
       toast.error(error.response?.data?.message || "Could not update mood.");
+    }
+  },
+
+  setConversationMute: async (userId, muted) => {
+    const previous = get().muted;
+    set({ muted });
+    try {
+      const { data } = await axiosInstance.put(`/messages/conversation/${userId}/mute`, { muted });
+      if (get().selectedPeerId !== userId) return;
+      set({ muted: Boolean(data.muted) });
+    } catch (error) {
+      if (get().selectedPeerId === userId) set({ muted: previous });
+      toast.error(error.response?.data?.message || "Could not update mute.");
     }
   },
 

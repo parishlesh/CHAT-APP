@@ -7,8 +7,9 @@ import { useAuth } from "../store/useAuth";
 const MessageInput = () => {
   const [text, setText] = useState("");
   const [selectedImages, setSelectedImages] = useState([]);
+  const [previewUrls, setPreviewUrls] = useState([]);
   const [disappearing, setDisappearing] = useState(false);
-  const { sendMessage, selectedUser, editingMessage, setEditingMessage, editMessage, replyingTo, setReplyingTo } = useChatStore();
+  const { sendMessage, selectedUser, editingMessage, setEditingMessage, editMessage, replyingTo, setReplyingTo, sending } = useChatStore();
   const { socket, authUser } = useAuth();
   const fileInputRef = useRef(null);
   const typingTimer = useRef(null);
@@ -41,6 +42,10 @@ const MessageInput = () => {
     if (editingMessage) {
       setText(editingMessage.displayText || "");
       setSelectedImages([]);
+      setPreviewUrls((prev) => {
+        prev.forEach((url) => URL.revokeObjectURL(url));
+        return [];
+      });
       requestAnimationFrame(resizeField);
       textareaRef.current?.focus();
     }
@@ -52,13 +57,21 @@ const MessageInput = () => {
     const files = Array.from(event.target.files);
     if (files.length === 0) return;
     setSelectedImages((prev) => [...prev, ...files]);
+    setPreviewUrls((prev) => [...prev, ...files.map((file) => URL.createObjectURL(file))]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const removeImage = (index) => {
+    setPreviewUrls((prev) => {
+      const url = prev[index];
+      if (url) URL.revokeObjectURL(url);
+      return prev.filter((_, i) => i !== index);
+    });
     setSelectedImages((prev) => prev.filter((_, i) => i !== index));
     if (selectedImages.length === 1 && fileInputRef.current) fileInputRef.current.value = "";
   };
+
+  useEffect(() => () => previewUrls.forEach((url) => URL.revokeObjectURL(url)), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const compressImage = (file) => {
     return new Promise((resolve) => {
@@ -100,12 +113,12 @@ const MessageInput = () => {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (editingMessage) {
-      if (!text.trim()) return;
+      if (!text.trim() || sending) return;
       await editMessage(editingMessage._id, text.trim());
       setText("");
       return;
     }
-    if (!text.trim() && selectedImages.length === 0) return;
+    if (sending || (!text.trim() && selectedImages.length === 0)) return;
     try {
       let imageData = null;
       if (selectedImages.length > 0) {
@@ -123,6 +136,10 @@ const MessageInput = () => {
       stopTyping();
       setText("");
       setSelectedImages([]);
+      setPreviewUrls((prev) => {
+        prev.forEach((url) => URL.revokeObjectURL(url));
+        return [];
+      });
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     } catch (error) {
       console.error("Failed to send message: ", error);
@@ -158,7 +175,7 @@ const MessageInput = () => {
         <div className="mb-2 flex gap-2 overflow-x-auto">
           {selectedImages.map((image, index) => (
             <div key={index} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md">
-              <img src={URL.createObjectURL(image)} alt="Preview" className="h-full w-full object-cover" />
+              <img src={previewUrls[index]} alt="Preview" className="h-full w-full object-cover" />
               <button
                 type="button"
                 onClick={() => removeImage(index)}
@@ -204,7 +221,7 @@ const MessageInput = () => {
           type="submit"
           className="mb-0.5 rounded-full bg-primary p-2 text-primary-content disabled:opacity-40"
           aria-label={editingMessage ? "Save edit" : "Send"}
-          disabled={!text.trim() && selectedImages.length === 0}
+          disabled={sending || (!text.trim() && selectedImages.length === 0)}
         >
           <Send size={20} />
         </button>
