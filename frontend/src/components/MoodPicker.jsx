@@ -18,7 +18,7 @@ const MoodPicker = () => {
         aria-labelledby="mood-picker-title"
       >
         <h3 id="mood-picker-title" className="text-base font-semibold">How are you feeling?</h3>
-        <p className="mt-1 text-xs opacity-70">This vibe only applies to this conversation.</p>
+        <p className="mt-1 text-xs opacity-70">Friends see this in every chat. It does not change the conversation vibe or app theme.</p>
         <div className="mt-4 grid grid-cols-2 gap-2">
           {MOOD_OPTIONS.map((option) => {
             const selected = current?.id === option.id;

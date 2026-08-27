@@ -1,7 +1,7 @@
 import express from "express";
 import protectRoute from "../middleware/auth-middleware.js";
 import { searchLimiter, sendLimiter } from "../middleware/rate-limit.js";
-import { acceptRequest, deleteMessage, editMessage, getChats, getConversationMood, getMessages, getRequests, getUsersForSidebar, rejectRequest, searchConversationMessages, searchUsers, sendMessage, updateConversationMood, updateConversationMute } from "../controllers/message-controller.js";
+import { acceptRequest, deleteMessage, editMessage, getChats, getConversationDetails, getConversationMood, getMessages, getRequests, getUsersForSidebar, rejectRequest, searchConversationMessages, searchUsers, sendMessage, updateConversationMood, updateConversationMute, updateConversationVibe } from "../controllers/message-controller.js";
 
 const router = express.Router();
 router.get("/users", protectRoute, getUsersForSidebar);
@@ -14,6 +14,8 @@ router.get("/conversation/:conversationId/search", protectRoute, searchLimiter, 
 router.get("/conversation/:userId/mood", protectRoute, getConversationMood);
 router.put("/conversation/:userId/mood", protectRoute, updateConversationMood);
 router.put("/conversation/:userId/mute", protectRoute, updateConversationMute);
+router.get("/conversation/:conversationId", protectRoute, getConversationDetails);
+router.patch("/conversation/:conversationId/vibe", protectRoute, updateConversationVibe);
 router.patch("/:messageId", protectRoute, editMessage);
 router.delete("/:messageId", protectRoute, deleteMessage);
 router.get("/:id", protectRoute, getMessages);

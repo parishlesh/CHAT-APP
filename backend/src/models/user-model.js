@@ -52,6 +52,12 @@ const userSchema = new mongoose.Schema(
 
     // Browser-generated ECDH P-256 public JWK. Private material never reaches this API.
     encryptionPublicKey: { type: mongoose.Schema.Types.Mixed, default: null },
+
+    mood: {
+      type: String,
+      enum: ["happy", "angry", "calm", "sad", "professional", "excited", "sleepy", "romantic"],
+    },
+    moodUpdatedAt: Date,
   },
   {
     timestamps: true,

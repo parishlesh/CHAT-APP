@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
-import { useThemeStore } from "../store/useThemeStore";
 import { useConversationThemeStore } from "../store/useConversationThemeStore";
+import { useAuth } from "../store/useAuth";
+import { useThemeStore } from "../store/useThemeStore";
 import { themeForMood } from "../lib/moods";
 import ChatHeader from "./ChatHeader";
 import MoodBanner from "./MoodBanner";
 import MoodPicker from "./MoodPicker";
+import VibePrompt from "./VibePrompt";
+import VibePicker from "./VibePicker";
 import MessageInput from "./MessageInput";
 import MessageBubble from "./MessageBubble";
 import MessageSkeleton from "./skeleton/MessageSkeleton";
@@ -16,10 +19,12 @@ const ChatContainer = () => {
   const {
     messages, getMessages, loadOlderMessages, isMessageLoading, isLoadingOlder, selectedUser, pruneExpired,
     messageSearch, messageMatchIds, searchMessages, messageSearchOpen, setMessageSearchOpen, goToMatch, matchIndex,
+    getConversationDetails,
   } = useChatStore();
+  const { getConversationMood, clearConversationMood } = useConversationThemeStore();
+  const { authUser } = useAuth();
   const { theme } = useThemeStore();
-  const { mine, getConversationMood, clearConversationMood } = useConversationThemeStore();
-  const conversationTheme = themeForMood(mine?.mood, theme);
+  const personalTheme = themeForMood(authUser?.mood, theme);
   const endRef = useRef(null);
   const scrollerRef = useRef(null);
   const stickToBottom = useRef(true);
@@ -30,8 +35,9 @@ const ChatContainer = () => {
     stickToBottom.current = true;
     getMessages(selectedUser._id);
     getConversationMood(selectedUser._id);
+    getConversationDetails();
     return () => clearConversationMood();
-  }, [selectedUser?._id, getMessages, getConversationMood, clearConversationMood]);
+  }, [selectedUser?._id, getMessages, getConversationMood, clearConversationMood, getConversationDetails]);
 
   useEffect(() => {
     const timer = setInterval(pruneExpired, 30000);
@@ -66,8 +72,10 @@ const ChatContainer = () => {
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-base-100" data-theme={conversationTheme}>
+    <div className="relative flex h-full min-h-0 w-full flex-col bg-base-100" data-theme={personalTheme}>
       <ChatHeader />
+      <VibePicker />
+      <VibePrompt />
       <MoodBanner />
       {messageSearchOpen && (
         <label className="flex items-center gap-2 border-b border-base-300 bg-base-100 px-3 py-2">

@@ -10,6 +10,7 @@ import { useEffect } from 'react'
 import { Loader } from 'lucide-react'
 import { Toaster } from 'react-hot-toast'
 import { useThemeStore } from './store/useThemeStore'
+import { themeForMood } from './lib/moods'
 
 
 const App = () => {
@@ -36,7 +37,10 @@ const App = () => {
   return (
     <div className="flex h-screen w-full overflow-hidden" data-theme={theme}>
     {authUser && <Navbar />}
-    <div className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto"}`}>
+    <div
+      className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto"}`}
+      data-theme={authUser ? themeForMood(authUser.mood, theme) : theme}
+    >
       <Routes>
         <Route path="/" element={authUser ? <Home /> : <Navigate to="/login" />} />
         <Route path="/signup" element={!authUser ? <Signup /> : <Navigate to="/" />} />

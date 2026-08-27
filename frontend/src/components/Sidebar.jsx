@@ -5,6 +5,7 @@ import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
 import { useThemeStore } from "../store/useThemeStore";
 import { formatChatListTime } from "../lib/time";
+import { getMoodMeta } from "../lib/moods";
 
 const Sidebar = () => {
   const { chatList, requests, searchResults, activeTab, setActiveTab, selectedUser, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
@@ -85,7 +86,7 @@ const Sidebar = () => {
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline justify-between gap-2">
-                      <b className="truncate text-sm">{user.fullName}</b>
+                      <b className="truncate text-sm">{getMoodMeta(user.mood) ? `${getMoodMeta(user.mood).emoji} ` : ""}{user.fullName}</b>
                       {time && !request && !query.trim() && <span className="shrink-0 text-[11px] text-base-content/50">{formatChatListTime(time)}</span>}
                     </span>
                     <span className="flex items-center justify-between gap-2">

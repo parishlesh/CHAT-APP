@@ -13,7 +13,7 @@ const MoodBanner = () => {
     return (
       <div className="flex w-full items-center border-b border-base-300 px-3 py-1 text-xs text-base-content/80">
         <button type="button" onClick={openMoodPicker} className="hover:underline" aria-label="Change mood">
-          🙂 What&apos;s your mood today?
+          🙂 How are you feeling?
         </button>
       </div>
     );
@@ -35,7 +35,7 @@ const MoodBanner = () => {
         </p>
       ) : (
         <button type="button" onClick={openMoodPicker} className="hover:underline">
-          🙂 What&apos;s your mood today?
+          🙂 How are you feeling?
         </button>
       )}
     </div>

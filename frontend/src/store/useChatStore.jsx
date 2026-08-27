@@ -3,11 +3,18 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import { decryptText, encryptText } from "../lib/encryption";
 import { notifyIncomingMessage } from "../lib/notify";
+import { getVibeMeta } from "../config/conversationVibes";
 import { useAuth } from "./useAuth";
 import { useConversationThemeStore } from "./useConversationThemeStore";
 
 const sortChats = (items) => [...items].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 const idsEqual = (a, b) => String(a) === String(b);
+const conversationIdForUser = (state, userId) => {
+  if (!userId) return null;
+  return state.chatList.find((chat) => String(chat.user?._id) === String(userId))?._id
+    || state.requests.find((request) => String(request.user?._id) === String(userId))?._id
+    || null;
+};
 const hasMessage = (messages, id) => messages.some((message) => idsEqual(message._id, id));
 
 const hydrate = async (message, peer) => {
@@ -43,7 +50,8 @@ export const useChatStore = create((set, get) => ({
   isLoadingOlder: false, hasMore: false, sending: false, loadToken: 0,
   chatList: [], requests: [], searchResults: [], activeTab: "chats", typing: false,
   messageSearch: "", messageMatchIds: [], messageSearchOpen: false, matchIndex: 0,
-  editingMessage: null, replyingTo: null,
+  editingMessage: null, replyingTo: null, conversationVibe: "neutral",
+  vibePickerOpen: false, isVibeSaving: false, vibePromptHiddenFor: {},
   getUsers: async () => {},
   getChats: async () => {
     try {
@@ -254,21 +262,88 @@ export const useChatStore = create((set, get) => ({
     });
     socket.off("conversationMoodUpdated").on("conversationMoodUpdated", (payload) => {
       useConversationThemeStore.getState().setMoodFromSocket(payload);
+      if (!payload?.userId) return;
+      set((state) => ({
+        chatList: state.chatList.map((chat) => idsEqual(chat.user?._id, payload.userId)
+          ? { ...chat, user: { ...chat.user, mood: payload.mood, moodUpdatedAt: payload.updatedAt } }
+          : chat),
+      }));
+    });
+    socket.off("conversationVibeUpdated").on("conversationVibeUpdated", (payload) => {
+      if (!payload?.conversationId) return;
+      const vibe = payload.conversationVibe || "neutral";
+      const openId = conversationIdForUser(get(), get().selectedUser?._id);
+      set((state) => ({
+        conversationVibe: idsEqual(openId, payload.conversationId) ? vibe : state.conversationVibe,
+        chatList: state.chatList.map((chat) => idsEqual(chat._id, payload.conversationId) ? { ...chat, conversationVibe: vibe } : chat),
+      }));
     });
   },
-  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated"].forEach((event) => useAuth.getState().socket?.off(event)),
-  setSelectedUser: (selectedUser) => set({
-    selectedUser,
-    messages: [],
-    typing: false,
-    messageSearch: "",
-    messageMatchIds: [],
-    messageSearchOpen: false,
-    editingMessage: null,
-    replyingTo: null,
-    hasMore: false,
-    matchIndex: 0,
-  }),
+  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated"].forEach((event) => useAuth.getState().socket?.off(event)),
+  setSelectedUser: (selectedUser) => {
+    const match = selectedUser && (
+      get().chatList.find((chat) => String(chat.user?._id) === String(selectedUser._id))
+      || get().requests.find((request) => String(request.user?._id) === String(selectedUser._id))
+    );
+    set({
+      selectedUser,
+      conversationVibe: match?.conversationVibe || "neutral",
+      vibePickerOpen: false,
+      isVibeSaving: false,
+      messages: [],
+      typing: false,
+      messageSearch: "",
+      messageMatchIds: [],
+      messageSearchOpen: false,
+      editingMessage: null,
+      replyingTo: null,
+      hasMore: false,
+      matchIndex: 0,
+    });
+  },
+  getConversationDetails: async () => {
+    const { selectedUser } = get();
+    const conversationId = conversationIdForUser(get(), selectedUser?._id);
+    if (!conversationId) return set({ conversationVibe: "neutral" });
+    try {
+      const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}`);
+      if (get().selectedUser?._id !== selectedUser._id) return;
+      set({ conversationVibe: data.conversationVibe || "neutral" });
+    } catch {
+      if (get().selectedUser?._id !== selectedUser._id) return;
+      set({ conversationVibe: "neutral" });
+    }
+  },
+  updateConversationVibe: async (key) => {
+    const { selectedUser } = get();
+    const conversationId = conversationIdForUser(get(), selectedUser?._id);
+    if (!conversationId || get().isVibeSaving) return false;
+    set({ isVibeSaving: true });
+    try {
+      const { data } = await axiosInstance.patch(`/messages/conversation/${conversationId}/vibe`, { key });
+      const vibe = data.conversationVibe || "neutral";
+      set((state) => ({
+        conversationVibe: vibe,
+        isVibeSaving: false,
+        vibePickerOpen: false,
+        vibePromptHiddenFor: { ...state.vibePromptHiddenFor, [conversationId]: true },
+        chatList: state.chatList.map((chat) => idsEqual(chat._id, conversationId) ? { ...chat, conversationVibe: vibe } : chat),
+      }));
+      toast.success(`Conversation vibe changed to ${getVibeMeta(vibe).label}`);
+      return true;
+    } catch (error) {
+      set({ isVibeSaving: false });
+      toast.error(error.response?.data?.message || "Could not update conversation vibe.");
+      return false;
+    }
+  },
+  openVibePicker: () => set({ vibePickerOpen: true }),
+  closeVibePicker: () => set({ vibePickerOpen: false }),
+  dismissVibePrompt: () => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    set((state) => ({ vibePromptHiddenFor: { ...state.vibePromptHiddenFor, [conversationId]: true } }));
+  },
   setActiveTab: (activeTab) => set({ activeTab, searchResults: [] }),
   setChatList: (chatList) => set({ chatList: sortChats(chatList) }),
   setMessageSearchOpen: (messageSearchOpen) => set({ messageSearchOpen, ...(messageSearchOpen ? {} : { messageSearch: "", messageMatchIds: [] }) }),

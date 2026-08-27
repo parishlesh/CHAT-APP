@@ -8,6 +8,7 @@ import { logger } from "../lib/logger.js";
 import { requireObjectId, sanitizeQuery, validateExpiresAt, validateImageDataUrl, validateMessageText } from "../lib/validate.js";
 
 export const ALLOWED_MOODS = ["happy", "angry", "calm", "sad", "professional", "excited", "sleepy", "romantic"];
+export const ALLOWED_VIBES = ["neutral", "happy", "angry", "sad", "romantic", "playful", "excited", "calm", "focused", "celebration"];
 
 const publicUser = "-password";
 const pairQuery = (firstId, secondId) => ({ participants: { $all: [firstId, secondId], $size: 2 } });
@@ -15,10 +16,16 @@ const pairQuery = (firstId, secondId) => ({ participants: { $all: [firstId, seco
 const otherParticipant = (conversation, myId) =>
   conversation.participants.find((participant) => participant._id.toString() !== myId.toString());
 
-const serializeMood = (conversation, userId) => {
-  if (!userId || !conversation.moods) return null;
-  const key = String(userId);
-  const entry = typeof conversation.moods.get === "function" ? conversation.moods.get(key) : conversation.moods[key];
+const serializeUserMood = (user) => {
+  if (!user?.mood) return null;
+  return { mood: user.mood, updatedAt: user.moodUpdatedAt };
+};
+
+const moodFromConversationMap = (conversation, userId) => {
+  if (!userId || !conversation?.moods) return null;
+  const entry = typeof conversation.moods.get === "function"
+    ? conversation.moods.get(String(userId))
+    : conversation.moods[String(userId)];
   if (!entry?.mood) return null;
   return { mood: entry.mood, updatedAt: entry.updatedAt };
 };
@@ -28,14 +35,32 @@ const participantId = (participant) => (participant?._id ?? participant).toStrin
 const isMuted = (conversation, userId) =>
   Boolean(conversation.mutedBy?.some((id) => String(id) === String(userId)));
 
-const moodPayload = (conversation, myId) => {
-  const otherId = conversation.participants.find((participant) => participantId(participant) !== myId.toString());
+const moodPayload = async (conversation, myId) => {
+  const otherId = conversation
+    ? conversation.participants.find((participant) => participantId(participant) !== myId.toString())
+    : null;
+  const [me, other] = await Promise.all([
+    User.findById(myId).select("mood moodUpdatedAt"),
+    otherId ? User.findById(otherId).select("mood moodUpdatedAt") : null,
+  ]);
   return {
-    mine: serializeMood(conversation, myId),
-    theirs: serializeMood(conversation, otherId),
-    conversationId: conversation._id,
-    muted: isMuted(conversation, myId),
+    mine: serializeUserMood(me) || moodFromConversationMap(conversation, myId),
+    theirs: serializeUserMood(other) || moodFromConversationMap(conversation, otherId),
+    conversationId: conversation?._id || null,
+    muted: conversation ? isMuted(conversation, myId) : false,
   };
+};
+
+const emitMoodToPeers = async (userId, payload) => {
+  const conversations = await Conversation.find({ participants: userId }).select("participants");
+  const peerIds = new Set();
+  conversations.forEach((conversation) => {
+    conversation.participants.forEach((participant) => {
+      const id = participantId(participant);
+      if (id !== String(userId)) peerIds.add(id);
+    });
+  });
+  peerIds.forEach((peerId) => emitToUser(peerId, "conversationMoodUpdated", payload));
 };
 
 const findPairConversation = async (myId, otherUserId) => {
@@ -230,6 +255,7 @@ export const getChats = asyncHandler(async (req, res) => {
     updatedAt: conversation.updatedAt,
     unreadCount: unreadByConversation[conversation._id.toString()] || 0,
     muted: isMuted(conversation, req.user._id),
+    conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
   })));
 });
 
@@ -257,29 +283,91 @@ export const acceptRequest = asyncHandler((req, res) => respondToRequest(req, re
 export const rejectRequest = asyncHandler((req, res) => respondToRequest(req, res, "declined"));
 
 export const getConversationMood = asyncHandler(async (req, res) => {
+  requireObjectId(req.params.userId, "user id");
   const conversation = await findPairConversation(req.user._id, req.params.userId);
-  if (!conversation) return res.status(200).json({ mine: null, theirs: null, conversationId: null, muted: false });
-  res.status(200).json(moodPayload(conversation, req.user._id));
+  if (!conversation) {
+    const [me, other] = await Promise.all([
+      User.findById(req.user._id).select("mood moodUpdatedAt"),
+      User.findById(req.params.userId).select("mood moodUpdatedAt"),
+    ]);
+    return res.status(200).json({
+      mine: serializeUserMood(me),
+      theirs: serializeUserMood(other),
+      conversationId: null,
+      muted: false,
+    });
+  }
+  res.status(200).json(await moodPayload(conversation, req.user._id));
 });
 
 export const updateConversationMood = asyncHandler(async (req, res) => {
   const mood = (req.body.mood || "").trim().toLowerCase();
   if (!ALLOWED_MOODS.includes(mood)) throw new AppError(400, "Invalid mood.");
   const conversation = await findPairConversation(req.user._id, req.params.userId);
-  if (!conversation) throw new AppError(404, "Conversation not found.");
   const updatedAt = new Date();
-  if (!conversation.moods) conversation.moods = new Map();
-  conversation.moods.set(req.user._id.toString(), { mood, updatedAt });
-  conversation.markModified("moods");
-  await conversation.save();
-  const otherId = conversation.participants.find((participant) => participant.toString() !== req.user._id.toString());
-  emitToUser(otherId, "conversationMoodUpdated", {
-    conversationId: conversation._id,
+  await User.findByIdAndUpdate(req.user._id, { mood, moodUpdatedAt: updatedAt });
+  await emitMoodToPeers(req.user._id, {
     userId: req.user._id,
     mood,
     updatedAt,
+    conversationId: conversation?._id || null,
   });
-  res.status(200).json(moodPayload(conversation, req.user._id));
+  if (!conversation) {
+    const other = await User.findById(req.params.userId).select("mood moodUpdatedAt");
+    return res.status(200).json({
+      mine: { mood, updatedAt },
+      theirs: serializeUserMood(other),
+      conversationId: null,
+      muted: false,
+    });
+  }
+  res.status(200).json(await moodPayload(conversation, req.user._id));
+});
+
+const serializeConversation = (conversation) => ({
+  _id: conversation._id,
+  participants: conversation.participants,
+  conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
+  status: conversation.status,
+  lastMessage: conversation.lastMessage,
+});
+
+const loadParticipantConversation = async (conversationId, userId) => {
+  requireObjectId(conversationId, "conversation id");
+  const conversation = await Conversation.findById(conversationId)
+    .populate("participants", publicUser)
+    .populate("lastMessage");
+  if (!conversation) throw new AppError(404, "Conversation not found.");
+  if (!conversation.participants.some((participant) => participantId(participant) === String(userId))) {
+    throw new AppError(403, "You are not part of this conversation.");
+  }
+  return conversation;
+};
+
+export const getConversationDetails = asyncHandler(async (req, res) => {
+  const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  res.status(200).json(serializeConversation(conversation));
+});
+
+export const updateConversationVibe = asyncHandler(async (req, res) => {
+  const key = (req.body.key || "").trim().toLowerCase();
+  if (!ALLOWED_VIBES.includes(key)) throw new AppError(400, "Invalid conversation vibe.");
+  const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  conversation.conversationVibe = key;
+  await conversation.save();
+  const populated = await Conversation.findById(conversation._id)
+    .populate("participants", publicUser)
+    .populate("lastMessage");
+  const payload = serializeConversation(populated);
+  populated.participants.forEach((participant) => {
+    if (String(participant._id) === String(req.user._id)) return;
+    emitToUser(participant._id, "conversationVibeUpdated", {
+      conversationId: populated._id,
+      conversationVibe: payload.conversationVibe,
+      changedBy: req.user._id,
+    });
+  });
+  res.status(200).json(payload);
 });
 
 export const updateConversationMute = asyncHandler(async (req, res) => {
@@ -292,5 +380,5 @@ export const updateConversationMute = asyncHandler(async (req, res) => {
   if (muted && !already) conversation.mutedBy.push(req.user._id);
   if (!muted) conversation.mutedBy = conversation.mutedBy.filter((id) => String(id) !== myId);
   await conversation.save();
-  res.status(200).json(moodPayload(conversation, req.user._id));
+  res.status(200).json(await moodPayload(conversation, req.user._id));
 });
