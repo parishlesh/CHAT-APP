@@ -34,15 +34,9 @@ const App = () => {
     );
 
   return (
-    <div className="flex h-screen w-full" data-theme={theme}>
-
-    {authUser && (
-      <div className="w-[20%] bg-gray-100 border-r">
-        <Navbar />
-      </div>
-    )}
-
-    <div className={authUser ? "w-[80%] overflow-y-auto" : "w-full overflow-y-auto"}>
+    <div className="flex h-screen w-full overflow-hidden" data-theme={theme}>
+    {authUser && <Navbar />}
+    <div className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto"}`}>
       <Routes>
         <Route path="/" element={authUser ? <Home /> : <Navigate to="/login" />} />
         <Route path="/signup" element={!authUser ? <Signup /> : <Navigate to="/" />} />
@@ -51,7 +45,6 @@ const App = () => {
         <Route path="/profile" element={authUser ? <Profile /> : <Navigate to="/login" />} />
       </Routes>
     </div>
-
     <Toaster />
   </div>
   )

@@ -24,7 +24,7 @@ const ScrollContainer = ({ children, className = '' }) => {
   return (
     <div
       ref={containerRef}
-      className={`h-full overflow-y-auto transition-[scrollbar-color] duration-500 ease-in-out 
+      className={`overflow-y-auto transition-[scrollbar-color] duration-500 ease-in-out 
         ${showScrollbar ? 'scrollbar-visible' : 'scrollbar-hidden'} ${className}`}
     >
       {children}

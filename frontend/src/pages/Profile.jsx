@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../store/useAuth'
-import { Camera, Info, Pencil } from "lucide-react";
+import { ArrowLeft, Camera, Info, Pencil } from "lucide-react";
 
 const Profile = () => {
 
@@ -59,7 +60,12 @@ const Profile = () => {
   };
 
   return (
-    <>
+    <div className="h-full overflow-y-auto">
+      <div className="px-4 pt-4 md:hidden">
+        <Link to="/" className="btn btn-ghost btn-sm w-fit" aria-label="Back to messages">
+          <ArrowLeft size={16} /> Messages
+        </Link>
+      </div>
       <div className="py-8 space-y-6 flex flex-col items-center justify-center w-full  bg-base-100 ">
         <div className="relative  inline-flex flex-col w-64  mx-auto">
           <img
@@ -125,7 +131,7 @@ const Profile = () => {
           <input disabled={!editing} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="No phone number" className="input input-bordered w-full mt-2" />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 

@@ -3,20 +3,48 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import { decryptText, encryptText } from "../lib/encryption";
 import { useAuth } from "./useAuth";
+import { useConversationThemeStore } from "./useConversationThemeStore";
 
 const sortChats = (items) => [...items].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 const hydrate = async (message, peer) => {
   const me = useAuth.getState().authUser;
-  return { ...message, displayText: message.deleted ? "" : await decryptText(message.text, me, peer) };
+  const displayText = message.deleted ? "" : await decryptText(message.text, me, peer);
+  let replyPreview = null;
+  if (message.replyTo && typeof message.replyTo === "object" && message.replyTo._id) {
+    replyPreview = {
+      ...message.replyTo,
+      displayText: message.replyTo.deleted ? "" : await decryptText(message.replyTo.text, me, peer),
+    };
+  }
+  return { ...message, displayText, replyPreview };
+};
+
+const lastPreview = async (chat, me) => {
+  const last = chat.lastMessage;
+  if (!last) return "";
+  if (last.deleted) return "This message was deleted";
+  if (last.image && !last.text) return "Photo";
+  const text = await decryptText(last.text, me, chat.user);
+  if (last.image) return text ? text : "Photo";
+  return text;
 };
 
 export const useChatStore = create((set, get) => ({
   messages: [], selectedUser: null, isUserLoading: false, isMessageLoading: false,
   chatList: [], requests: [], searchResults: [], activeTab: "chats", typing: false,
-  messageSearch: "", messageMatchIds: [],
+  messageSearch: "", messageMatchIds: [], messageSearchOpen: false,
+  editingMessage: null, replyingTo: null,
   getUsers: async () => {},
   getChats: async () => {
-    try { const { data } = await axiosInstance.get("/messages/conversations"); set({ chatList: sortChats(data) }); }
+    try {
+      const { data } = await axiosInstance.get("/messages/conversations");
+      const me = useAuth.getState().authUser;
+      const chats = await Promise.all(data.map(async (chat) => ({
+        ...chat,
+        lastPreview: await lastPreview(chat, me),
+      })));
+      set({ chatList: sortChats(chats) });
+    }
     catch (error) { toast.error(error.response?.data?.message || "Failed to fetch chats."); }
   },
   getRequests: async () => {
@@ -34,16 +62,20 @@ export const useChatStore = create((set, get) => ({
       const { data } = await axiosInstance.get(`/messages/${userId}`);
       const peer = get().selectedUser;
       set({ messages: await Promise.all(data.map((message) => hydrate(message, peer))) });
-    } catch (error) { toast.error(error.response?.data?.message || "Failed to fetch messages."); }
-    finally { set({ isMessageLoading: false }); }
+    } catch (error) { toast.error(error.response?.data?.message || "Failed to load messages."); }
+    finally { set({ isMessageLoading: false }); get().getChats(); }
   },
   sendMessage: async (messageData) => {
-    const { selectedUser, messages } = get(); const me = useAuth.getState().authUser;
+    const { selectedUser, messages, replyingTo } = get(); const me = useAuth.getState().authUser;
     if (!selectedUser) return;
     try {
       const text = await encryptText(messageData.text || "", me, selectedUser);
-      const { data } = await axiosInstance.post(`/messages/send/${selectedUser._id}`, { ...messageData, text });
-      set({ messages: [...messages, await hydrate(data, selectedUser)] });
+      const { data } = await axiosInstance.post(`/messages/send/${selectedUser._id}`, {
+        ...messageData,
+        text,
+        replyTo: replyingTo?._id || null,
+      });
+      set({ messages: [...messages, await hydrate(data, selectedUser)], replyingTo: null });
       get().getChats();
     } catch (error) { toast.error(error.response?.data?.message || "Failed to send message."); }
   },
@@ -53,13 +85,16 @@ export const useChatStore = create((set, get) => ({
       const encrypted = await encryptText(text, useAuth.getState().authUser, selectedUser);
       const { data } = await axiosInstance.patch(`/messages/${messageId}`, { text: encrypted });
       const updated = await hydrate(data, selectedUser);
-      set((state) => ({ messages: state.messages.map((message) => message._id === messageId ? updated : message) }));
+      set((state) => ({
+        messages: state.messages.map((message) => message._id === messageId ? { ...updated, replyPreview: message.replyPreview } : message),
+        editingMessage: null,
+      }));
     } catch (error) { toast.error(error.response?.data?.message || "Could not edit message."); }
   },
   deleteMessage: async (messageId) => {
     try {
       const { data } = await axiosInstance.delete(`/messages/${messageId}`);
-      set((state) => ({ messages: state.messages.map((message) => message._id === messageId ? { ...data, displayText: "" } : message) }));
+      set((state) => ({ messages: state.messages.map((message) => message._id === messageId ? { ...data, displayText: "", replyPreview: null } : message) }));
     } catch (error) { toast.error(error.response?.data?.message || "Could not delete message."); }
   },
   searchMessages: async (query) => {
@@ -71,8 +106,6 @@ export const useChatStore = create((set, get) => ({
       set({ messageMatchIds: [...new Set([...localIds, ...data.map((message) => message._id)])] });
     } catch { set({ messageMatchIds: localIds }); }
   },
-  // MongoDB TTL deletion is asynchronous (normally checked about once a minute), so
-  // this client poll hides locally expired messages before the database removes them.
   pruneExpired: () => set((state) => ({
     messages: state.messages.filter((message) => !message.expiresAt || new Date(message.expiresAt) > new Date()),
   })),
@@ -95,9 +128,9 @@ export const useChatStore = create((set, get) => ({
     socket.off("messageEdited").on("messageEdited", async (message) => {
       if (message.senderId !== get().selectedUser?._id) return;
       const updated = await hydrate(message, get().selectedUser);
-      set((state) => ({ messages: state.messages.map((item) => item._id === message._id ? updated : item) }));
+      set((state) => ({ messages: state.messages.map((item) => item._id === message._id ? { ...updated, replyPreview: item.replyPreview } : item) }));
     });
-    socket.off("messageDeleted").on("messageDeleted", ({ _id }) => set((state) => ({ messages: state.messages.map((message) => message._id === _id ? { ...message, deleted: true, text: "", image: "", displayText: "" } : message) })));
+    socket.off("messageDeleted").on("messageDeleted", ({ _id }) => set((state) => ({ messages: state.messages.map((message) => message._id === _id ? { ...message, deleted: true, text: "", image: "", displayText: "", replyPreview: null } : message) })));
     socket.off("typing").on("typing", ({ from }) => { if (from === get().selectedUser?._id) set({ typing: true }); });
     socket.off("stopTyping").on("stopTyping", ({ from }) => { if (from === get().selectedUser?._id) set({ typing: false }); });
     socket.off("conversationRequest").on("conversationRequest", (request) => {
@@ -111,9 +144,24 @@ export const useChatStore = create((set, get) => ({
       set((state) => ({ requests: state.requests.filter((request) => request._id !== conversation._id) }));
       if (conversation.status === "accepted") get().getChats();
     });
+    socket.off("conversationMoodUpdated").on("conversationMoodUpdated", (payload) => {
+      useConversationThemeStore.getState().setMoodFromSocket(payload);
+    });
   },
-  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated"].forEach((event) => useAuth.getState().socket?.off(event)),
-  setSelectedUser: (selectedUser) => set({ selectedUser, messages: [], typing: false, messageSearch: "", messageMatchIds: [] }),
+  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated"].forEach((event) => useAuth.getState().socket?.off(event)),
+  setSelectedUser: (selectedUser) => set({
+    selectedUser,
+    messages: [],
+    typing: false,
+    messageSearch: "",
+    messageMatchIds: [],
+    messageSearchOpen: false,
+    editingMessage: null,
+    replyingTo: null,
+  }),
   setActiveTab: (activeTab) => set({ activeTab, searchResults: [] }),
   setChatList: (chatList) => set({ chatList: sortChats(chatList) }),
+  setMessageSearchOpen: (messageSearchOpen) => set({ messageSearchOpen, ...(messageSearchOpen ? {} : { messageSearch: "", messageMatchIds: [] }) }),
+  setEditingMessage: (editingMessage) => set({ editingMessage, replyingTo: null }),
+  setReplyingTo: (replyingTo) => set({ replyingTo, editingMessage: null }),
 }));

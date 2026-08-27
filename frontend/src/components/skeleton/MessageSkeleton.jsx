@@ -1,12 +1,10 @@
-
 const MessageSkeleton = () => {
   return (
-    <div className="flex items-center space-x-4 p-4 bg-gray-200 rounded-lg animate-pulse">
-      <div className="w-12 h-12 bg-gray-300 rounded-full"></div>
-      <div className="flex-1">
-        <div className="h-4 bg-gray-300 rounded w-1/3 mb-2"></div>
-        <div className="h-3 bg-gray-300 rounded w-2/3"></div>
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col justify-end gap-2 px-4 py-4">
+      <div className="h-10 w-2/5 animate-pulse rounded-lg rounded-bl-none bg-base-300" />
+      <div className="ml-auto h-12 w-1/2 animate-pulse rounded-lg rounded-br-none bg-base-300" />
+      <div className="h-8 w-1/3 animate-pulse rounded-lg rounded-bl-none bg-base-300" />
+      <div className="ml-auto h-16 w-3/5 animate-pulse rounded-lg rounded-br-none bg-base-300" />
     </div>
   );
 };

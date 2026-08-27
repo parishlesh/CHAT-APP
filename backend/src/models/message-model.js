@@ -38,6 +38,12 @@ const messageSchema = new mongoose.Schema(
     edited: { type: Boolean, default: false },
     deleted: { type: Boolean, default: false },
 
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null,
+    },
+
     // TTL removes this document after its absolute expiration time.
     expiresAt: { type: Date, default: null, index: { expireAfterSeconds: 0 } },
   },

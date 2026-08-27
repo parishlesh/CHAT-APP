@@ -1,64 +1,40 @@
 import { useAuth } from "../store/useAuth";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { LogOut, MessageSquare, User, Settings } from "lucide-react";
 import { useThemeStore } from "../store/useThemeStore";
 
 const Navbar = () => {
   const { isLogout, authUser } = useAuth();
-
-  const { theme } = useThemeStore()
-
+  const { theme } = useThemeStore();
+  const location = useLocation();
   if (!authUser) return null;
 
+  const itemClass = (path) =>
+    `flex items-center justify-center rounded-lg p-2 ${location.pathname === path ? "bg-base-300" : "hover:bg-base-300"}`;
+
   return (
-    <div
-      className="fixed h-screen w-[20%] p-5 flex flex-col justify-between shadow-lg"
+    <nav
+      className="hidden h-full w-16 shrink-0 flex-col items-center justify-between border-r border-base-300 bg-base-100 py-4 md:flex"
       data-theme={theme}
+      aria-label="Main"
     >
-      <div>
-        <div className="flex items-center gap-3 mb-6">
-          <div className="avatar">
-            <div className="w-12 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
-              <img src={authUser.profilePic || "/avatar.png"} alt="" />
-            </div>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-base-content">{authUser.fullName}</h2>
-          </div>
-        </div>
-
- 
-        <ul className="menu space-y-1">
-          <li>
-            <Link to="/" className="flex items-center gap-3 text-base-content hover:bg-base-300 rounded-lg px-3 py-2">
-              <MessageSquare size={20} />
-              Messages
-            </Link>
-          </li>
-        </ul>
+      <div className="flex flex-col items-center gap-3">
+        <Link to="/" className={itemClass("/")} aria-label="Messages">
+          <MessageSquare size={22} />
+        </Link>
       </div>
-
-      <div className="space-y-2">
-        <Link to="/settings" className="flex items-center gap-2 text-base-content hover:text-primary px-3 py-2 rounded-lg hover:bg-base-300">
+      <div className="flex flex-col items-center gap-2">
+        <Link to="/settings" className={itemClass("/settings")} aria-label="Settings">
           <Settings size={20} />
-
-          Settings
         </Link>
-        <Link to="/profile" className="flex items-center gap-2 text-base-content px-3 py-2 rounded-lg ">
+        <Link to="/profile" className={itemClass("/profile")} aria-label="Profile">
           <User size={20} />
-          <span>Profile</span>
         </Link>
-        <button
-          onClick={isLogout}
-          className="flex items-center gap-2 text-red-500 hover:text-red-700 px-3 py-2 rounded-lg hover:bg-base-300 transition"
-        >
+        <button type="button" onClick={isLogout} className="rounded-lg p-2 text-error hover:bg-base-300" aria-label="Logout">
           <LogOut size={20} />
-          <span>Logout</span>
         </button>
       </div>
-    </div>
-
-
+    </nav>
   );
 };
 

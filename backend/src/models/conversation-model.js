@@ -28,6 +28,25 @@ const conversationSchema = new mongoose.Schema(
     },
 
     acceptedAt: Date,
+
+    moods: {
+      type: Map,
+      of: new mongoose.Schema(
+        {
+          mood: {
+            type: String,
+            enum: ["happy", "angry", "calm", "sad", "professional", "excited", "sleepy", "romantic"],
+            required: true,
+          },
+          updatedAt: {
+            type: Date,
+            default: Date.now,
+          },
+        },
+        { _id: false }
+      ),
+      default: () => new Map(),
+    },
   },
   {
     timestamps: true,

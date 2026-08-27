@@ -1,7 +1,8 @@
 
 import { THEMES } from "../cosntants";
 import { useThemeStore } from "../store/useThemeStore";
-import { Send } from "lucide-react";
+import { ArrowLeft, Send } from "lucide-react";
+import { Link } from "react-router-dom";
 import ScrollContainer from "../components/scrollbarContainer";
 
 const PREVIEW_MESSAGES = [
@@ -15,8 +16,11 @@ const Settings = () => {
   return (
     <ScrollContainer className="w-full h-full overflow-hidden">
 
-    <div className="h-screen container mx-auto px-4 pt-20 max-w-5xl">
+    <div className="container mx-auto max-w-5xl px-4 py-6">
       <div className="space-y-6">
+        <Link to="/" className="btn btn-ghost btn-sm w-fit md:hidden" aria-label="Back to messages">
+          <ArrowLeft size={16} /> Messages
+        </Link>
         <div className="flex flex-col gap-1">
           <h2 className="text-lg font-semibold">Theme</h2>
           <p className="text-sm text-base-content/70">Choose a theme for your chat interface</p>

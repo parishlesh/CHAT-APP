@@ -1,8 +1,11 @@
+import mongoose from "mongoose";
 import cloudinary from "../lib/cloudinary.js";
 import Conversation from "../models/conversation-model.js";
 import Message from "../models/message-model.js";
 import User from "../models/user-model.js";
 import { getReceiverSocketId, io } from "../lib/socket.js";
+
+export const ALLOWED_MOODS = ["happy", "angry", "calm", "sad", "professional", "excited", "sleepy", "romantic"];
 
 const publicUser = "-password";
 
@@ -14,6 +17,34 @@ const otherParticipant = (conversation, myId) =>
 const emitToUser = (userId, event, payload) => {
   const socketId = getReceiverSocketId(userId.toString());
   if (socketId) io.to(socketId).emit(event, payload);
+};
+
+const serializeMood = (conversation, userId) => {
+  if (!userId || !conversation.moods) return null;
+  const key = String(userId);
+  const entry = typeof conversation.moods.get === "function"
+    ? conversation.moods.get(key)
+    : conversation.moods[key];
+  if (!entry?.mood) return null;
+  return { mood: entry.mood, updatedAt: entry.updatedAt };
+};
+
+const participantId = (participant) => (participant?._id ?? participant).toString();
+
+const moodPayload = (conversation, myId) => {
+  const otherId = conversation.participants.find((participant) => participantId(participant) !== myId.toString());
+  return {
+    mine: serializeMood(conversation, myId),
+    theirs: serializeMood(conversation, otherId),
+    conversationId: conversation._id,
+  };
+};
+
+const findPairConversation = async (myId, otherUserId) => {
+  if (!mongoose.Types.ObjectId.isValid(otherUserId)) return { error: { status: 400, message: "Invalid user id." } };
+  if (otherUserId === myId.toString()) return { error: { status: 400, message: "Invalid conversation." } };
+  const conversation = await Conversation.findOne(pairQuery(myId, otherUserId));
+  return { conversation };
 };
 
 export const searchUsers = async (req, res) => {
@@ -61,7 +92,9 @@ export const getMessages = async (req, res) => {
         messageIds: unseen.map((message) => message._id.toString()),
       });
     }
-    const messages = await Message.find({ conversationId: conversation._id }).sort({ createdAt: 1 });
+    const messages = await Message.find({ conversationId: conversation._id })
+      .populate("replyTo", "senderId text image deleted")
+      .sort({ createdAt: 1 });
     res.status(200).json(messages);
   } catch (error) {
     console.error("get messages:", error.message);
@@ -88,7 +121,7 @@ export const searchConversationMessages = async (req, res) => {
 
 export const sendMessage = async (req, res) => {
   try {
-    const { text = "", image, expiresAt = null } = req.body;
+    const { text = "", image, expiresAt = null, replyTo } = req.body;
     const senderId = req.user._id;
     const receiverId = req.params.id;
     if (!text.trim() && !image) return res.status(400).json({ message: "Message text or image is required." });
@@ -117,11 +150,17 @@ export const sendMessage = async (req, res) => {
     if (expiry && (Number.isNaN(expiry.getTime()) || expiry <= new Date())) {
       return res.status(400).json({ message: "Expiration must be a future date." });
     }
-    const message = await Message.create({ conversationId: conversation._id, senderId, receiverId, text: text.trim(), image: imageUrl, expiresAt: expiry });
+    let replyToId = null;
+    if (replyTo && mongoose.Types.ObjectId.isValid(replyTo)) {
+      const original = await Message.findOne({ _id: replyTo, conversationId: conversation._id });
+      if (original) replyToId = original._id;
+    }
+    const message = await Message.create({ conversationId: conversation._id, senderId, receiverId, text: text.trim(), image: imageUrl, expiresAt: expiry, replyTo: replyToId });
     conversation.lastMessage = message._id;
     await conversation.save();
+    const populated = await Message.findById(message._id).populate("replyTo", "senderId text image deleted");
 
-    if (conversation.status === "accepted") emitToUser(receiverId, "newMessage", message);
+    if (conversation.status === "accepted") emitToUser(receiverId, "newMessage", populated);
     if (createdRequest) {
       const request = await Conversation.findById(conversation._id)
         .populate("initiatedBy", publicUser)
@@ -129,7 +168,7 @@ export const sendMessage = async (req, res) => {
         .populate("lastMessage");
       emitToUser(receiverId, "conversationRequest", request);
     }
-    res.status(201).json(message);
+    res.status(201).json(populated);
   } catch (error) {
     console.error("send message:", error.message);
     res.status(500).json({ message: "Internal server error" });
@@ -182,11 +221,17 @@ export const getChats = async (req, res) => {
   try {
     const conversations = await Conversation.find({ participants: req.user._id, status: "accepted" })
       .populate("participants", publicUser).populate("lastMessage").sort({ updatedAt: -1 });
+    const unread = await Message.aggregate([
+      { $match: { conversationId: { $in: conversations.map((item) => item._id) }, receiverId: req.user._id, seen: false, deleted: false } },
+      { $group: { _id: "$conversationId", count: { $sum: 1 } } },
+    ]);
+    const unreadByConversation = Object.fromEntries(unread.map((item) => [item._id.toString(), item.count]));
     res.status(200).json(conversations.map((conversation) => ({
       _id: conversation._id,
       user: otherParticipant(conversation, req.user._id),
       lastMessage: conversation.lastMessage,
       updatedAt: conversation.updatedAt,
+      unreadCount: unreadByConversation[conversation._id.toString()] || 0,
     })));
   } catch (error) {
     console.error("get chats:", error.message);
@@ -224,3 +269,46 @@ export const acceptRequest = (req, res) => respondToRequest(req, res, "accepted"
 export const rejectRequest = (req, res) => respondToRequest(req, res, "declined").catch((error) => {
   console.error("reject request:", error.message); res.status(500).json({ message: "Internal server error" });
 });
+
+export const getConversationMood = async (req, res) => {
+  try {
+    const { conversation, error } = await findPairConversation(req.user._id, req.params.userId);
+    if (error) return res.status(error.status).json({ message: error.message });
+    if (!conversation) return res.status(200).json({ mine: null, theirs: null, conversationId: null });
+    res.status(200).json(moodPayload(conversation, req.user._id));
+  } catch (error) {
+    console.error("get conversation mood:", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const updateConversationMood = async (req, res) => {
+  try {
+    const mood = (req.body.mood || "").trim().toLowerCase();
+    if (!ALLOWED_MOODS.includes(mood)) {
+      return res.status(400).json({ message: "Invalid mood." });
+    }
+    const { conversation, error } = await findPairConversation(req.user._id, req.params.userId);
+    if (error) return res.status(error.status).json({ message: error.message });
+    if (!conversation) return res.status(404).json({ message: "Conversation not found." });
+
+    const updatedAt = new Date();
+    if (!conversation.moods) conversation.moods = new Map();
+    conversation.moods.set(req.user._id.toString(), { mood, updatedAt });
+    conversation.markModified("moods");
+    await conversation.save();
+
+    const otherId = conversation.participants.find((participant) => participant.toString() !== req.user._id.toString());
+    emitToUser(otherId, "conversationMoodUpdated", {
+      conversationId: conversation._id,
+      userId: req.user._id,
+      mood,
+      updatedAt,
+    });
+
+    res.status(200).json(moodPayload(conversation, req.user._id));
+  } catch (error) {
+    console.error("update conversation mood:", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};

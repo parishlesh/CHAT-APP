@@ -1,49 +1,117 @@
 import { useEffect, useState } from "react";
-import { Check, MessageCircle, Search, Users, X } from "lucide-react";
+import { LogOut, MessageCircle, Search, Settings, User, Users } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
 import { useThemeStore } from "../store/useThemeStore";
+import { formatChatListTime } from "../lib/time";
 
 const Sidebar = () => {
-  const { chatList, requests, searchResults, activeTab, setActiveTab, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
-  const { onlineUsers } = useAuth(); const { theme } = useThemeStore(); const [query, setQuery] = useState("");
+  const { chatList, requests, searchResults, activeTab, setActiveTab, selectedUser, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
+  const { onlineUsers, authUser, isLogout } = useAuth();
+  const { theme } = useThemeStore();
+  const [query, setQuery] = useState("");
+
   useEffect(() => {
     getChats();
     getRequests();
     subscribeToMessages();
     return unsubscribeFromMessages;
   }, [getChats, getRequests, subscribeToMessages, unsubscribeFromMessages]);
-  useEffect(() => { const timer = setTimeout(() => searchUsers(query), 250); return () => clearTimeout(timer); }, [query, searchUsers]);
+  useEffect(() => {
+    const timer = setTimeout(() => searchUsers(query), 250);
+    return () => clearTimeout(timer);
+  }, [query, searchUsers]);
+
   const rows = query.trim()
     ? searchResults.map((user) => ({ user }))
     : activeTab === "chats"
       ? chatList.map((chat) => ({ user: chat.user, chat }))
       : requests.map((request) => ({ user: request.user, request }));
-  return <aside className="h-full w-80 shrink-0 border-l bg-base-100 p-4 overflow-y-auto shadow-lg" data-theme={theme}>
-    <div className="sticky top-0 z-10 -mx-4 mb-5 border-b border-base-300 bg-base-100 px-4 pb-4 pt-1 shadow-sm">
-      <label htmlFor="user-search" className="mb-2 block text-base font-bold text-base-content">Find people</label>
-      <div className="relative">
-        <Search size={20} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base-content/60" />
-        <input
-          id="user-search"
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search name, username, or email"
-          className="block w-full rounded-lg border-2 border-primary bg-base-100 py-3 pl-11 pr-3 text-base text-base-content outline-none placeholder:text-base-content/50 focus:ring-2 focus:ring-primary"
-          aria-label="Search users by name, username, or email"
-        />
+
+  return (
+    <aside className="flex h-full min-h-0 w-full flex-col border-r border-base-300 bg-base-100" data-theme={theme}>
+      <div className="shrink-0 border-b border-base-300 px-3 pb-3 pt-3">
+        <div className="mb-3 flex items-center justify-between md:hidden">
+          <div className="flex min-w-0 items-center gap-2">
+            <img src={authUser?.profilePic || "/avatar.png"} alt="" className="h-8 w-8 rounded-full object-cover" />
+            <span className="truncate font-semibold">{authUser?.fullName}</span>
+          </div>
+          <div className="flex items-center">
+            <Link to="/settings" className="rounded-full p-2 hover:bg-base-200" aria-label="Settings"><Settings size={18} /></Link>
+            <Link to="/profile" className="rounded-full p-2 hover:bg-base-200" aria-label="Profile"><User size={18} /></Link>
+            <button type="button" onClick={isLogout} className="rounded-full p-2 text-error hover:bg-base-200" aria-label="Logout"><LogOut size={18} /></button>
+          </div>
+        </div>
+        <label className="relative block">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base-content/50" />
+          <input
+            id="user-search"
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search"
+            className="w-full rounded-lg bg-base-200 py-2 pl-9 pr-3 text-sm outline-none placeholder:text-base-content/50"
+            aria-label="Search users by name, username, or email"
+          />
+        </label>
+        {!query.trim() && (
+          <div className="mt-3 flex">
+            <button type="button" onClick={() => setActiveTab("chats")} className={`flex-1 border-b-2 py-1.5 text-sm ${activeTab === "chats" ? "border-primary font-medium" : "border-transparent text-base-content/60"}`}>
+              <span className="inline-flex items-center gap-1"><MessageCircle size={14} /> Chats</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab("requests")} className={`flex-1 border-b-2 py-1.5 text-sm ${activeTab === "requests" ? "border-primary font-medium" : "border-transparent text-base-content/60"}`}>
+              <span className="inline-flex items-center gap-1"><Users size={14} /> Requests {requests.length ? requests.length : ""}</span>
+            </button>
+          </div>
+        )}
       </div>
-      {query.trim() && <p className="mt-2 text-xs text-base-content/60">Select a user to start a conversation</p>}
-    </div>
-    <div className="flex gap-2 mb-4"><button onClick={() => setActiveTab("chats")} className={`btn btn-sm flex-1 ${activeTab === "chats" ? "btn-primary" : "btn-ghost"}`}><MessageCircle size={16} /> Chats</button><button onClick={() => setActiveTab("requests")} className={`btn btn-sm flex-1 ${activeTab === "requests" ? "btn-primary" : "btn-ghost"}`}><Users size={16} /> Requests {requests.length ? `(${requests.length})` : ""}</button></div>
-    <ul className="space-y-2">{rows.map(({ user, request, chat }) => {
-      const lastMessage = request ? request.lastMessage : chat?.lastMessage;
-      return <li key={request?._id || user._id} className="rounded-lg hover:bg-base-200">
-        <div className="flex items-center gap-3 p-2"><button onClick={() => setSelectedUser(user)} className="flex min-w-0 flex-1 items-center gap-3 text-left"><div className="relative"><img src={user.profilePic || "/avatar.png"} alt="" className="w-11 h-11 rounded-full object-cover" />{onlineUsers.includes(user._id) && <span className="absolute bottom-0 right-0 w-3 h-3 bg-success rounded-full ring-2 ring-base-100" />}</div><span className="min-w-0"><b className="block truncate">{user.fullName}</b><small className="block truncate text-base-content/60">@{user.username} · {user.email}</small></span></button>{request && <div className="flex gap-1"><button aria-label="Accept" onClick={() => respondToRequest(request._id, "accept")} className="btn btn-success btn-xs btn-square"><Check size={15} /></button><button aria-label="Reject" onClick={() => respondToRequest(request._id, "reject")} className="btn btn-error btn-xs btn-square"><X size={15} /></button></div>}</div>
-        {lastMessage && <p className="text-xs px-2 pb-2 truncate text-base-content/60">{lastMessage.text || "Sent an image"}</p>}</li>;
-    })}</ul>
-    {!rows.length && <p className="text-center text-sm text-base-content/50 py-8">{query ? "No people found" : activeTab === "requests" ? "No pending requests" : "No chats yet"}</p>}
-  </aside>;
+      <ul className="min-h-0 flex-1 overflow-y-auto">
+        {rows.map(({ user, request, chat }) => {
+          const selected = selectedUser?._id === user._id;
+          const preview = query.trim()
+            ? `@${user.username}`
+            : request
+              ? "New conversation request"
+              : chat?.lastPreview || "No messages yet";
+          const time = chat?.lastMessage?.createdAt || chat?.updatedAt;
+          return (
+            <li key={request?._id || chat?._id || user._id} className={selected ? "bg-base-200" : "hover:bg-base-200/70"}>
+              <div className="flex items-center gap-2 px-3 py-2.5">
+                <button type="button" onClick={() => setSelectedUser(user)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                  <div className="relative shrink-0">
+                    <img src={user.profilePic || "/avatar.png"} alt="" className="h-11 w-11 rounded-full object-cover" />
+                    {onlineUsers.includes(user._id) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-base-100" />}
+                  </div>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline justify-between gap-2">
+                      <b className="truncate text-sm">{user.fullName}</b>
+                      {time && !request && !query.trim() && <span className="shrink-0 text-[11px] text-base-content/50">{formatChatListTime(time)}</span>}
+                    </span>
+                    <span className="flex items-center justify-between gap-2">
+                      <small className="block truncate text-xs text-base-content/60">{preview}</small>
+                      {!!chat?.unreadCount && <span className="badge badge-primary badge-xs shrink-0">{chat.unreadCount}</span>}
+                    </span>
+                  </span>
+                </button>
+                {request && (
+                  <div className="flex shrink-0 gap-1">
+                    <button aria-label="Accept" onClick={() => respondToRequest(request._id, "accept")} className="btn btn-success btn-xs">Accept</button>
+                    <button aria-label="Reject" onClick={() => respondToRequest(request._id, "reject")} className="btn btn-ghost btn-xs">Reject</button>
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {!rows.length && (
+        <p className="px-4 py-8 text-center text-sm text-base-content/50">
+          {query ? "No people found" : activeTab === "requests" ? "No pending requests" : "No chats yet"}
+        </p>
+      )}
+    </aside>
+  );
 };
+
 export default Sidebar;
