@@ -12,7 +12,7 @@ const Home = () => {
         <Sidebar />
       </div>
       <main className={`${selectedUser ? "flex" : "hidden md:flex"} min-h-0 min-w-0 flex-1 flex-col`}>
-        {!selectedUser ? <NoChatSelected /> : <ChatContainer />}
+        {!selectedUser ? <NoChatSelected /> : <ChatContainer key={selectedUser._id} />}
       </main>
     </div>
   );

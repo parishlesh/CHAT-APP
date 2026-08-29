@@ -45,9 +45,9 @@ const parseMessagePage = (data) => {
   return { messages: data?.messages || [], hasMore: Boolean(data?.hasMore) };
 };
 
-export const useChatStore = create((set, get) => ({
+const chatSessionState = {
   messages: [], selectedUser: null, isUserLoading: false, isMessageLoading: false,
-  isLoadingOlder: false, hasMore: false, sending: false, loadToken: 0,
+  isLoadingOlder: false, hasMore: false, sending: false,
   chatList: [], requests: [], searchResults: [], activeTab: "chats", typing: false,
   messageSearch: "", messageMatchIds: [], messageSearchOpen: false, matchIndex: 0,
   editingMessage: null, replyingTo: null, conversationVibe: "neutral",
@@ -55,20 +55,32 @@ export const useChatStore = create((set, get) => ({
   appearance: { wallpaper: "default", bubbleStyle: "classic" }, conversationLocked: false,
   defaultDisappearing: false, rituals: [], memories: [], settingsPanel: null,
   vibePickerOpen: false, isVibeSaving: false, vibePromptHiddenFor: {},
+};
+
+export const useChatStore = create((set, get) => ({
+  ...chatSessionState, loadToken: 0,
   getUsers: async () => {},
   getChats: async () => {
+    const ownerId = useAuth.getState().authUser?._id;
     try {
       const { data } = await axiosInstance.get("/messages/conversations");
+      if (useAuth.getState().authUser?._id !== ownerId) return;
       const me = useAuth.getState().authUser;
       const chats = await Promise.all(data.map(async (chat) => ({
         ...chat,
         lastPreview: await lastPreview(chat, me),
       })));
+      if (useAuth.getState().authUser?._id !== ownerId) return;
       set({ chatList: sortChats(chats) });
     } catch (error) { toast.error(error.response?.data?.message || "Failed to fetch chats."); }
   },
   getRequests: async () => {
-    try { const { data } = await axiosInstance.get("/messages/requests"); set({ requests: data }); }
+    const ownerId = useAuth.getState().authUser?._id;
+    try {
+      const { data } = await axiosInstance.get("/messages/requests");
+      if (useAuth.getState().authUser?._id !== ownerId) return;
+      set({ requests: data });
+    }
     catch (error) { toast.error(error.response?.data?.message || "Failed to fetch requests."); }
   },
   searchUsers: async (query) => {
@@ -333,11 +345,47 @@ export const useChatStore = create((set, get) => ({
     });
   },
   unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated", "conversationMetaUpdated", "conversationModeUpdated", "conversationStatusUpdated", "messageReactionAdded", "messageReactionUpdated", "messageReactionRemoved", "conversationMemoryCreated", "conversationMemoryDeleted", "ritualUpdated"].forEach((event) => useAuth.getState().socket?.off(event)),
+  resetChatState: () => {
+    get().unsubscribeFromMessages();
+    set({ ...chatSessionState, loadToken: get().loadToken + 1 });
+  },
+  closeConversation: () => {
+    set({
+      selectedUser: null,
+      messages: [],
+      typing: false,
+      messageSearch: "",
+      messageMatchIds: [],
+      messageSearchOpen: false,
+      matchIndex: 0,
+      editingMessage: null,
+      replyingTo: null,
+      conversationVibe: "neutral",
+      relationshipType: "",
+      relationshipCustom: "",
+      myMode: null,
+      theirMode: null,
+      appearance: { wallpaper: "default", bubbleStyle: "classic" },
+      conversationLocked: false,
+      defaultDisappearing: false,
+      rituals: [],
+      memories: [],
+      settingsPanel: null,
+      vibePickerOpen: false,
+      isVibeSaving: false,
+      hasMore: false,
+      isMessageLoading: false,
+    });
+    useConversationThemeStore.getState().clearConversationMood();
+  },
   setSelectedUser: (selectedUser) => {
-    const match = selectedUser && (
-      get().chatList.find((chat) => String(chat.user?._id) === String(selectedUser._id))
-      || get().requests.find((request) => String(request.user?._id) === String(selectedUser._id))
-    );
+    const currentId = get().selectedUser?._id;
+    if (!selectedUser || (currentId && String(currentId) === String(selectedUser._id))) {
+      get().closeConversation();
+      return;
+    }
+    const match = get().chatList.find((chat) => String(chat.user?._id) === String(selectedUser._id))
+      || get().requests.find((request) => String(request.user?._id) === String(selectedUser._id));
     set({
       selectedUser,
       conversationVibe: match?.conversationVibe || "neutral",

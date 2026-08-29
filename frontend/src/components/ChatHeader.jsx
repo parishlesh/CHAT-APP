@@ -46,7 +46,7 @@ const ChatHeader = () => {
       <div className="flex min-w-0 items-center gap-2">
         <button
           onClick={() => setSelectedUser(null)}
-          className="rounded-full p-2 hover:bg-base-200 md:hidden"
+          className="ui-press rounded-full p-2 hover:bg-base-200 md:hidden"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -76,14 +76,14 @@ const ChatHeader = () => {
       <div className="flex shrink-0 items-center">
         <button
           type="button"
-          className="rounded-full p-2 hover:bg-base-200"
+          className="ui-press rounded-full p-2 hover:bg-base-200"
           aria-label="Search messages"
           onClick={() => setMessageSearchOpen(true)}
         >
           <Search className="h-5 w-5" />
         </button>
         <button
-          className="rounded-full p-2 hover:bg-base-200"
+          className="ui-press rounded-full p-2 hover:bg-base-200"
           aria-label="More options"
           aria-haspopup="menu"
           aria-expanded={settingsOpen}

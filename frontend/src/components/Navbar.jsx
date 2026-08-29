@@ -10,7 +10,7 @@ const Navbar = () => {
   if (!authUser) return null;
 
   const itemClass = (path) =>
-    `flex items-center justify-center rounded-lg p-2 ${location.pathname === path ? "bg-base-300" : "hover:bg-base-300"}`;
+    `ui-press flex items-center justify-center rounded-lg p-2 ${location.pathname === path ? "bg-base-300" : "hover:bg-base-300"}`;
 
   return (
     <nav
@@ -30,7 +30,7 @@ const Navbar = () => {
         <Link to="/profile" className={itemClass("/profile")} aria-label="Profile">
           <User size={20} />
         </Link>
-        <button type="button" onClick={isLogout} className="rounded-lg p-2 text-error hover:bg-base-300" aria-label="Logout">
+        <button type="button" onClick={isLogout} className="ui-press rounded-lg p-2 text-error hover:bg-base-300" aria-label="Logout">
           <LogOut size={20} />
         </button>
       </div>

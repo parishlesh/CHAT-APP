@@ -17,7 +17,9 @@ const MessageBubble = ({ message }) => {
   const [memoryNote, setMemoryNote] = useState("");
   const [memoryType, setMemoryType] = useState("memory");
   const [memoryBusy, setMemoryBusy] = useState(false);
+  const [popReaction, setPopReaction] = useState(null);
   const pressTimer = useRef(null);
+  const lastMineReaction = useRef(undefined);
   const mine = String(message.senderId) === String(authUser._id);
 
   const clearPress = () => {
@@ -40,7 +42,16 @@ const MessageBubble = ({ message }) => {
     setMenuOpen(false);
   };
 
-  useEffect(() => () => clearPress(), []);
+  useEffect(() => {
+    const mineReaction = (message.reactions || []).find((reaction) => String(reaction.userId) === String(authUser._id));
+    const key = mineReaction?.key || null;
+    if (lastMineReaction.current === undefined) {
+      lastMineReaction.current = key;
+      return;
+    }
+    if (key && key !== lastMineReaction.current) setPopReaction(key);
+    lastMineReaction.current = key;
+  }, [message.reactions, authUser._id]);
 
   useEffect(() => {
     if (!memoryOpen) return;
@@ -50,7 +61,7 @@ const MessageBubble = ({ message }) => {
   }, [memoryOpen]);
 
   return (
-    <div id={`msg-${message._id}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+    <div id={`msg-${message._id}`} className={`ui-msg-enter flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
         className="group relative max-w-[80%] sm:max-w-[70%]"
         onContextMenu={(event) => { event.preventDefault(); openMenu(); }}
@@ -62,7 +73,7 @@ const MessageBubble = ({ message }) => {
           <button
             type="button"
             aria-label="Message actions"
-            className={`absolute top-0.5 z-10 rounded-full p-1 text-current/70 hover:bg-black/10 ${mine ? "left-0" : "right-0"} opacity-80 md:opacity-0 md:group-hover:opacity-100`}
+            className={`ui-press absolute top-0.5 z-10 rounded-full p-1 text-current/70 hover:bg-black/10 ${mine ? "left-0" : "right-0"} opacity-80 md:opacity-0 md:group-hover:opacity-100`}
             onClick={() => setMenuOpen((open) => !open)}
           >
             <MoreVertical size={16} />
@@ -117,7 +128,10 @@ const MessageBubble = ({ message }) => {
             {message.reactions.map((reaction) => {
               const meta = REACTIONS.find((item) => item.key === reaction.key);
               return (
-                <span key={`${reaction.userId}-${reaction.key}`} className="rounded-full bg-base-200 px-1.5 text-[11px]">
+                <span
+                  key={`${reaction.userId}-${reaction.key}`}
+                  className={`rounded-full bg-base-200 px-1.5 text-[11px] ${popReaction === reaction.key && String(reaction.userId) === String(authUser._id) ? "ui-react-pop" : ""}`}
+                >
                   {meta?.emoji || "•"}
                 </span>
               );
@@ -128,7 +142,7 @@ const MessageBubble = ({ message }) => {
         {menuOpen && !message.deleted && (
           <>
             <button type="button" className="fixed inset-0 z-20 cursor-default" aria-label="Close message actions" onClick={() => { setMenuOpen(false); setConfirmDelete(false); }} />
-            <div className={`absolute z-30 mt-1 w-44 rounded-lg border border-base-300 bg-base-100 py-1 text-sm text-base-content shadow-md ${mine ? "right-0" : "left-0"}`}>
+            <div className={`ui-pop absolute z-30 mt-1 w-44 rounded-lg border border-base-300 bg-base-100 py-1 text-sm text-base-content shadow-md ${mine ? "right-0" : "left-0"}`}>
               {confirmDelete ? (
                 <div className="px-3 py-2">
                   <p className="mb-2 text-xs">Delete message?</p>
@@ -145,7 +159,7 @@ const MessageBubble = ({ message }) => {
                 </div>
               ) : (
                 <>
-                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => { setReplyingTo(message); setMenuOpen(false); }}>
+                  <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => { setReplyingTo(message); setMenuOpen(false); }}>
                     <Reply size={14} /> Reply
                   </button>
                   <div className="flex flex-wrap gap-0.5 px-2 py-1">
@@ -154,7 +168,7 @@ const MessageBubble = ({ message }) => {
                         key={item.key}
                         type="button"
                         title={item.label}
-                        className="rounded p-0.5 hover:bg-base-200"
+                        className="ui-press rounded p-0.5 hover:bg-base-200"
                         onClick={() => {
                           const mineReaction = (message.reactions || []).find((reaction) => String(reaction.userId) === String(authUser._id));
                           if (mineReaction?.key === item.key) clearReaction(message._id);
@@ -166,7 +180,7 @@ const MessageBubble = ({ message }) => {
                       </button>
                     ))}
                   </div>
-                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => {
+                  <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => {
                     setMemoryTitle((message.displayText || "Memory").slice(0, 80));
                     setMemoryNote("");
                     setMemoryType("memory");
@@ -176,17 +190,17 @@ const MessageBubble = ({ message }) => {
                     <Star size={14} /> Save as Memory
                   </button>
                   {message.displayText && (
-                    <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={copyText}>
+                    <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={copyText}>
                       <Copy size={14} /> Copy
                     </button>
                   )}
                   {mine && message.displayText && (
-                    <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" aria-label="Edit" onClick={() => { setEditingMessage(message); setMenuOpen(false); }}>
+                    <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" aria-label="Edit" onClick={() => { setEditingMessage(message); setMenuOpen(false); }}>
                       <Pencil size={14} /> Edit
                     </button>
                   )}
                   {mine && (
-                    <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-error hover:bg-base-200" aria-label="Delete" onClick={() => setConfirmDelete(true)}>
+                    <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-error hover:bg-base-200" aria-label="Delete" onClick={() => setConfirmDelete(true)}>
                       <Trash2 size={14} /> Delete
                     </button>
                   )}
@@ -199,7 +213,7 @@ const MessageBubble = ({ message }) => {
           <>
             <button type="button" className="fixed inset-0 z-40 cursor-default bg-black/30" aria-label="Close memory" onClick={() => setMemoryOpen(false)} />
             <form
-              className="absolute z-50 mt-2 w-64 rounded-lg border border-base-300 bg-base-100 p-3 text-base-content shadow-md"
+              className="ui-pop absolute z-50 mt-2 w-64 rounded-lg border border-base-300 bg-base-100 p-3 text-base-content shadow-md"
               onSubmit={async (event) => {
                 event.preventDefault();
                 if (memoryBusy) return;
@@ -220,7 +234,7 @@ const MessageBubble = ({ message }) => {
               </select>
               <div className="mt-2 flex justify-end gap-2">
                 <button type="button" className="text-xs opacity-70" onClick={() => setMemoryOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-xs" disabled={memoryBusy || !memoryTitle.trim()}>Save</button>
+                <button type="submit" className="btn btn-primary btn-xs ui-press" disabled={memoryBusy || !memoryTitle.trim()}>Save</button>
               </div>
             </form>
           </>

@@ -14,7 +14,7 @@ const VibePrompt = () => {
         <p>Set the conversation vibe</p>
         <p className="mt-0.5 text-base-content/55">This is the personality of this chat, not your mood.</p>
       </button>
-      <button type="button" className="shrink-0 rounded-full p-1 hover:bg-base-200" aria-label="Dismiss vibe prompt" onClick={dismissVibePrompt}>
+      <button type="button" className="ui-press shrink-0 rounded-full p-1 hover:bg-base-200" aria-label="Dismiss vibe prompt" onClick={dismissVibePrompt}>
         <X size={14} />
       </button>
     </div>

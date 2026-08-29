@@ -11,6 +11,7 @@ import {
   RITUALS, UNTIL_PRESETS, WALLPAPERS, findMeta, untilFromPreset,
 } from "../config/conversationExtras";
 import { requestNotificationPermission } from "../lib/notify";
+import OptionButton from "./OptionButton";
 
 const Section = ({ title, children }) => (
   <div className="border-t border-base-300 py-2">
@@ -20,7 +21,7 @@ const Section = ({ title, children }) => (
 );
 
 const Row = ({ label, value, onClick, disabled }) => (
-  <button type="button" disabled={disabled} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200 disabled:opacity-50" onClick={onClick}>
+  <button type="button" disabled={disabled} className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200 disabled:opacity-50" onClick={onClick}>
     <span>{label}</span>
     <span className="flex items-center gap-1 text-xs opacity-70">{value}<ChevronRight size={14} /></span>
   </button>
@@ -61,17 +62,23 @@ const ConversationSettings = ({ onClose, onSearch }) => {
     return (
       <Panel onBack={() => setView("menu")} title="Relationship type">
         {RELATIONSHIP_TYPES.map((item) => (
-          <button key={item.key} type="button" disabled={busy} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(async () => {
-            await patchConversationMeta({ relationshipType: item.key, relationshipCustom: item.key === "custom" ? customLabel : "" });
-            if (item.key !== "custom") setView("menu");
-          })}>
+          <OptionButton
+            key={item.key}
+            selected={relationshipType === item.key}
+            disabled={busy}
+            onSelect={() => run(async () => {
+              await patchConversationMeta({ relationshipType: item.key, relationshipCustom: item.key === "custom" ? customLabel : "" });
+              if (item.key !== "custom") setView("menu");
+            })}
+            className="w-full px-3 py-2 text-left text-sm hover:bg-base-200"
+          >
             <span>{item.emoji}</span> {item.label}
-          </button>
+          </OptionButton>
         ))}
         {relationshipType === "custom" && (
           <form className="flex gap-2 px-3 py-2" onSubmit={(event) => { event.preventDefault(); run(() => patchConversationMeta({ relationshipType: "custom", relationshipCustom: customLabel })); }}>
             <input value={customLabel} onChange={(event) => setCustomLabel(event.target.value)} className="input input-sm input-bordered flex-1" placeholder="Custom label" maxLength={40} />
-            <button type="submit" className="btn btn-sm btn-primary" disabled={busy}>Save</button>
+            <button type="submit" className="btn btn-sm btn-primary ui-press" disabled={busy}>Save</button>
           </form>
         )}
       </Panel>
@@ -81,17 +88,28 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   if (view === "mode") {
     return (
       <Panel onBack={() => setView("menu")} title="What do I need?">
-        <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => updateMyMode(null))}>Clear</button>
+        <button type="button" className="ui-press w-full px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => updateMyMode(null))}>Clear</button>
         {CONVERSATION_MODES.map((item) => (
-          <button key={item.key} type="button" disabled={busy} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => updateMyMode(item.key))}>
+          <OptionButton
+            key={item.key}
+            selected={myMode?.key === item.key}
+            disabled={busy}
+            onSelect={() => run(() => updateMyMode(item.key))}
+            className="w-full px-3 py-2 text-left text-sm hover:bg-base-200"
+          >
             {item.emoji} {item.label}
-          </button>
+          </OptionButton>
         ))}
         <p className="px-3 pt-2 text-[11px] opacity-60">Optional expiration</p>
         {UNTIL_PRESETS.map((item) => (
-          <button key={item.key} type="button" disabled={busy || !myMode?.key} className="w-full px-3 py-1.5 text-left text-xs hover:bg-base-200" onClick={() => run(() => updateMyMode(myMode?.key, untilFromPreset(item.key)))}>
+          <OptionButton
+            key={item.key}
+            disabled={busy || !myMode?.key}
+            onSelect={() => run(() => updateMyMode(myMode?.key, untilFromPreset(item.key)))}
+            className="w-full px-3 py-1.5 text-left text-xs hover:bg-base-200"
+          >
             {item.label}
-          </button>
+          </OptionButton>
         ))}
       </Panel>
     );
@@ -100,15 +118,20 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   if (view === "availability") {
     return (
       <Panel onBack={() => setView("menu")} title="Availability">
-        <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => updateAvailability(""))}>Clear</button>
+        <button type="button" className="ui-press w-full px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => updateAvailability(""))}>Clear</button>
         {AVAILABILITY_OPTIONS.map((item) => (
           <div key={item.key} className="border-b border-base-300/60">
-            <button type="button" disabled={busy} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => updateAvailability(item.key))}>
+            <OptionButton
+              selected={false}
+              disabled={busy}
+              onSelect={() => run(() => updateAvailability(item.key))}
+              className="w-full px-3 py-2 text-left text-sm hover:bg-base-200"
+            >
               {item.emoji} {item.label}
-            </button>
+            </OptionButton>
             <div className="flex flex-wrap gap-1 px-3 pb-2">
               {UNTIL_PRESETS.map((preset) => (
-                <button key={preset.key} type="button" className="btn btn-ghost btn-xs" disabled={busy} onClick={() => run(() => updateAvailability(item.key, untilFromPreset(preset.key)))}>{preset.label}</button>
+                <button key={preset.key} type="button" className="btn btn-ghost btn-xs ui-press" disabled={busy} onClick={() => run(() => updateAvailability(item.key, untilFromPreset(preset.key)))}>{preset.label}</button>
               ))}
             </div>
           </div>
@@ -123,11 +146,27 @@ const ConversationSettings = ({ onClose, onSearch }) => {
         <p className="px-3 text-[11px] opacity-60">This is not Conversation Vibe or App Theme.</p>
         <p className="px-3 pt-2 text-xs font-medium">Wallpaper</p>
         {WALLPAPERS.map((item) => (
-          <button key={item.key} type="button" disabled={busy} className="w-full px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => patchConversationMeta({ appearance: { ...appearance, wallpaper: item.key } }))}>{item.label}</button>
+          <OptionButton
+            key={item.key}
+            selected={appearance?.wallpaper === item.key}
+            disabled={busy}
+            onSelect={() => run(() => patchConversationMeta({ appearance: { ...appearance, wallpaper: item.key } }))}
+            className="w-full px-3 py-2 text-left text-sm hover:bg-base-200"
+          >
+            {item.label}
+          </OptionButton>
         ))}
         <p className="px-3 pt-2 text-xs font-medium">Bubble style</p>
         {BUBBLE_STYLES.map((item) => (
-          <button key={item.key} type="button" disabled={busy} className="w-full px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => patchConversationMeta({ appearance: { ...appearance, bubbleStyle: item.key } }))}>{item.label}</button>
+          <OptionButton
+            key={item.key}
+            selected={appearance?.bubbleStyle === item.key}
+            disabled={busy}
+            onSelect={() => run(() => patchConversationMeta({ appearance: { ...appearance, bubbleStyle: item.key } }))}
+            className="w-full px-3 py-2 text-left text-sm hover:bg-base-200"
+          >
+            {item.label}
+          </OptionButton>
         ))}
       </Panel>
     );
@@ -143,9 +182,9 @@ const ConversationSettings = ({ onClose, onSearch }) => {
               <p className="text-sm">{item.emoji} {item.label}</p>
               <p className="text-[11px] opacity-60">{item.prompt}</p>
               <div className="mt-1 flex flex-wrap gap-1">
-                {!existing && <button type="button" className="btn btn-xs" disabled={busy} onClick={() => run(() => upsertRitual({ key: item.key, recurrence: item.key === "weekly" ? "weekly" : "daily" }))}>Create</button>}
-                {existing && <button type="button" className="btn btn-xs" disabled={busy} onClick={() => run(() => upsertRitual({ key: item.key, recurrence: existing.recurrence, paused: !existing.paused }))}>{existing.paused ? "Resume" : "Pause"}</button>}
-                {existing && <button type="button" className="btn btn-xs btn-ghost" disabled={busy} onClick={() => run(() => deleteRitual(item.key))}>Delete</button>}
+                {!existing && <button type="button" className="btn btn-xs ui-press" disabled={busy} onClick={() => run(() => upsertRitual({ key: item.key, recurrence: item.key === "weekly" ? "weekly" : "daily" }))}>Create</button>}
+                {existing && <button type="button" className="btn btn-xs ui-press" disabled={busy} onClick={() => run(() => upsertRitual({ key: item.key, recurrence: existing.recurrence, paused: !existing.paused }))}>{existing.paused ? "Resume" : "Pause"}</button>}
+                {existing && <button type="button" className="btn btn-xs btn-ghost ui-press" disabled={busy} onClick={() => run(() => deleteRitual(item.key))}>Delete</button>}
               </div>
             </div>
           );
@@ -175,7 +214,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
                       <p className="text-[11px] opacity-60">{new Date(memory.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>
                       {memory.note && <p className="text-xs opacity-80">“{memory.note}”</p>}
                       {String(memory.createdBy) === String(authUser?._id) && (
-                        <button type="button" className="text-[11px] text-error" onClick={() => run(() => deleteMemory(memory._id))}>Delete</button>
+                        <button type="button" className="ui-press text-[11px] text-error" onClick={() => run(() => deleteMemory(memory._id))}>Delete</button>
                       )}
                     </div>
                   );
@@ -189,7 +228,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   }
 
   return (
-    <div className="absolute right-2 top-12 z-30 max-h-[80vh] w-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100 py-1 shadow-md">
+    <div className="ui-pop absolute right-2 top-12 z-30 max-h-[80vh] w-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100 py-1 shadow-md">
       <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">Conversation settings</p>
       <Section title="🎭 Conversation">
         <Row label="Vibe" value={`${vibe.emoji} ${vibe.label}`} onClick={() => { onClose(); openVibePicker(); }} />
@@ -197,7 +236,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
         <Row label="Appearance" value={`${appearance?.wallpaper || "default"} · ${appearance?.bubbleStyle || "classic"}`} onClick={() => setView("appearance")} />
       </Section>
       <Section title="🙋 Me">
-        <button type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { onClose(); openMoodPicker(); }}>
+        <button type="button" className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { onClose(); openMoodPicker(); }}>
           <span className="flex items-center gap-2"><Smile size={16} /> Mood</span>
           <span className="text-xs opacity-70">{myMood ? `${myMood.emoji} ${myMood.label}` : "Set"}</span>
         </button>
@@ -209,22 +248,22 @@ const ConversationSettings = ({ onClose, onSearch }) => {
         <Row label="Rituals" value={rituals.length ? `${rituals.length}` : "None"} onClick={() => setView("rituals")} />
       </Section>
       <Section title="🔒 Privacy">
-        <button type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => patchConversationMeta({ defaultDisappearing: !defaultDisappearing }))}>
+        <button type="button" className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => patchConversationMeta({ defaultDisappearing: !defaultDisappearing }))}>
           <span>⏳ Disappearing messages</span>
           <span className="text-xs opacity-70">{defaultDisappearing ? "On" : "Off"}</span>
         </button>
-        <button type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { setConversationMute(selectedUser._id, !muted); }}>
+        <button type="button" className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { setConversationMute(selectedUser._id, !muted); }}>
           <span className="flex items-center gap-2">{muted ? <Bell size={16} /> : <BellOff size={16} />} {muted ? "Unmute" : "Mute"}</span>
         </button>
-        <button type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => patchConversationMeta({ locked: !conversationLocked }))}>
+        <button type="button" className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => patchConversationMeta({ locked: !conversationLocked }))}>
           <span>🔒 Lock conversation</span>
           <span className="text-xs opacity-70">{conversationLocked ? "On" : "Off"}</span>
         </button>
         <p className="px-3 pb-2 text-[10px] leading-snug opacity-50">Lock is a local reminder only. It is not biometric or device authentication.</p>
-        <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={async () => { onClose(); await requestNotificationPermission(); }}>
+        <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={async () => { onClose(); await requestNotificationPermission(); }}>
           <Bell size={16} /> Desktop alerts
         </button>
-        <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { onClose(); onSearch(); }}>
+        <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { onClose(); onSearch(); }}>
           <Search size={16} /> Search
         </button>
       </Section>
@@ -233,8 +272,8 @@ const ConversationSettings = ({ onClose, onSearch }) => {
 };
 
 const Panel = ({ title, onBack, children }) => (
-  <div className="absolute right-2 top-12 z-30 max-h-[80vh] w-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100 py-1 shadow-md">
-    <button type="button" className="px-3 py-2 text-xs opacity-70" onClick={onBack}>Back</button>
+  <div className="ui-pop absolute right-2 top-12 z-30 max-h-[80vh] w-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100 py-1 shadow-md">
+    <button type="button" className="ui-press px-3 py-2 text-xs opacity-70" onClick={onBack}>Back</button>
     <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">{title}</p>
     {children}
   </div>

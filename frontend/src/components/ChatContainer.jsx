@@ -76,7 +76,7 @@ const ChatContainer = () => {
   const dueMeta = findMeta(RITUALS, dueRitual?.key);
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-col bg-base-100" data-theme={personalTheme}>
+    <div className="ui-chat-enter relative flex h-full min-h-0 w-full flex-col bg-base-100" data-theme={personalTheme}>
       <ChatHeader />
       <VibePicker />
       <VibePrompt />
@@ -146,7 +146,7 @@ const ChatContainer = () => {
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-base-100/95 p-6 text-center">
           <p className="text-sm font-medium">This conversation is locked on this device.</p>
           <p className="mt-1 max-w-xs text-xs opacity-60">This is a reminder only. It is not biometric or device authentication.</p>
-          <button type="button" className="btn btn-primary btn-sm mt-4" onClick={() => patchConversationMeta({ locked: false })}>Unlock</button>
+          <button type="button" className="btn btn-primary btn-sm mt-4 ui-press" onClick={() => patchConversationMeta({ locked: false })}>Unlock</button>
         </div>
       )}
     </div>

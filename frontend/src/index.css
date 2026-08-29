@@ -44,3 +44,88 @@
   0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
   40% { opacity: 1; transform: translateY(-2px); }
 }
+
+.ui-press {
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+.ui-press:hover { transform: scale(1.02); }
+.ui-press:active { transform: scale(0.96); }
+
+.ui-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+.ui-option:hover { transform: scale(1.02); }
+.ui-option:active { transform: scale(0.96); }
+.ui-option-on {
+  background-color: hsl(var(--b2));
+}
+.ui-option-check {
+  margin-left: auto;
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+.ui-option-picked {
+  animation: ui-option-pulse 220ms ease;
+}
+@keyframes ui-option-pulse {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+.ui-pop {
+  animation: ui-pop-in 180ms ease;
+}
+@keyframes ui-pop-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ui-chat-enter {
+  animation: ui-chat-in 200ms ease;
+}
+@keyframes ui-chat-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.ui-msg-enter {
+  animation: ui-msg-in 200ms ease;
+}
+@keyframes ui-msg-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ui-react-pop {
+  animation: ui-react-in 200ms ease;
+}
+@keyframes ui-react-in {
+  0% { transform: scale(0.8); }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-press,
+  .ui-option {
+    transition: none;
+  }
+  .ui-press:hover,
+  .ui-press:active,
+  .ui-option:hover,
+  .ui-option:active {
+    transform: none;
+  }
+  .ui-option-picked,
+  .ui-pop,
+  .ui-chat-enter,
+  .ui-msg-enter,
+  .ui-react-pop,
+  .typing-dots i {
+    animation: none;
+  }
+}

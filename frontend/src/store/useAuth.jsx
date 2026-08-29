@@ -7,6 +7,15 @@ import { ensureEncryptionKey } from "../lib/encryption";
 
 const BASE_URL = import.meta.env.MODE === "development" ? "http://localhost:5001" : "/";
 
+const clearAccountStores = async () => {
+  const [{ useChatStore }, { useConversationThemeStore }] = await Promise.all([
+    import("./useChatStore"),
+    import("./useConversationThemeStore"),
+  ]);
+  useChatStore.getState().resetChatState();
+  useConversationThemeStore.getState().clearConversationMood();
+};
+
 export const useAuth = create((set, get) => ({
     authUser: null,
     isSigningUp: false,
@@ -26,6 +35,7 @@ export const useAuth = create((set, get) => ({
 
         } catch (error) {
             set({ authUser: null })
+            await clearAccountStores();
         } finally {
             set({ isCheckingAuth: false })
         }
@@ -36,6 +46,7 @@ export const useAuth = create((set, get) => ({
         try {
             const res = await axiosInstance.post("/auth/signup", data)
             const user = await ensureEncryptionKey(res.data, axiosInstance);
+            await clearAccountStores();
             set({ authUser: user })
             toast.success("account created successfully")
             get().connectSocket()
@@ -55,9 +66,10 @@ export const useAuth = create((set, get) => ({
     isLogout: async () => {
         try {
             await axiosInstance.post("/auth/logout")
+            await clearAccountStores();
+            get().disconnectSocket()
             set({ authUser: null })
             toast.success("logged out successfully")
-            get().disconnectSocket()
         } catch (error) {
             toast.error(error.response?.data?.message || "Logout failed.")
             console.error("Logout failed:", error);
@@ -69,6 +81,7 @@ export const useAuth = create((set, get) => ({
         try {
             const res = await axiosInstance.post("/auth/login", data);
             const user = await ensureEncryptionKey(res.data, axiosInstance);
+            await clearAccountStores();
             set({ authUser: user });
             toast.success("Logged in successfully");
 

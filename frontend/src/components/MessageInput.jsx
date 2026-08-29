@@ -195,13 +195,13 @@ const MessageInput = () => {
       <div className="flex items-end gap-1.5">
         {!editingMessage && (
           <>
-            <label className="mb-0.5 cursor-pointer rounded-full p-2 hover:bg-base-200" aria-label="Attach image">
+            <label className="ui-press mb-0.5 cursor-pointer rounded-full p-2 hover:bg-base-200" aria-label="Attach image">
               <ImageIcon size={22} />
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelection} />
             </label>
             <button
               type="button"
-              className={`mb-0.5 rounded-full p-2 ${disappearing ? "bg-primary text-primary-content" : "hover:bg-base-200"}`}
+              className={`ui-press mb-0.5 rounded-full p-2 ${disappearing ? "bg-primary text-primary-content" : "hover:bg-base-200"}`}
               aria-label="Toggle disappearing messages"
               aria-pressed={disappearing}
               title="Disappears 24 hours after sending"
@@ -223,7 +223,7 @@ const MessageInput = () => {
         />
         <button
           type="submit"
-          className="mb-0.5 rounded-full bg-primary p-2 text-primary-content disabled:opacity-40"
+          className="mb-0.5 rounded-full bg-primary p-2 text-primary-content ui-press disabled:opacity-40"
           aria-label={editingMessage ? "Save edit" : "Send"}
           disabled={sending || (!text.trim() && selectedImages.length === 0)}
         >

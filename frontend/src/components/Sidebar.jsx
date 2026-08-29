@@ -40,9 +40,9 @@ const Sidebar = () => {
             <span className="truncate font-semibold">{authUser?.fullName}</span>
           </div>
           <div className="flex items-center">
-            <Link to="/settings" className="rounded-full p-2 hover:bg-base-200" aria-label="Settings"><Settings size={18} /></Link>
-            <Link to="/profile" className="rounded-full p-2 hover:bg-base-200" aria-label="Profile"><User size={18} /></Link>
-            <button type="button" onClick={isLogout} className="rounded-full p-2 text-error hover:bg-base-200" aria-label="Logout"><LogOut size={18} /></button>
+            <Link to="/settings" className="ui-press rounded-full p-2 hover:bg-base-200" aria-label="Settings"><Settings size={18} /></Link>
+            <Link to="/profile" className="ui-press rounded-full p-2 hover:bg-base-200" aria-label="Profile"><User size={18} /></Link>
+            <button type="button" onClick={isLogout} className="ui-press rounded-full p-2 text-error hover:bg-base-200" aria-label="Logout"><LogOut size={18} /></button>
           </div>
         </div>
         <label className="relative block">
