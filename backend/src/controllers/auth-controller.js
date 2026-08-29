@@ -262,12 +262,17 @@ export const checkAuth = (req, res) => {
 export const updateEncryptionKey = async (req, res) => {
     try {
         const { encryptionPublicKey } = req.body;
-        if (!encryptionPublicKey?.kty || !encryptionPublicKey?.crv) {
+        if (!encryptionPublicKey?.kty || !encryptionPublicKey?.crv || !encryptionPublicKey?.x || !encryptionPublicKey?.y) {
             return res.status(400).json({ message: "A valid public key is required." });
         }
         const user = await User.findByIdAndUpdate(
             req.user._id,
-            { encryptionPublicKey },
+            { encryptionPublicKey: {
+                kty: encryptionPublicKey.kty,
+                crv: encryptionPublicKey.crv,
+                x: encryptionPublicKey.x,
+                y: encryptionPublicKey.y,
+            } },
             { new: true }
         ).select("-password");
         res.status(200).json(user);

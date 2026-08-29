@@ -9,7 +9,7 @@ import { requireObjectId, sanitizeQuery, validateExpiresAt, validateImageDataUrl
 
 import { ALLOWED_MOODS, ALLOWED_VIBES, REACTION_KEYS } from "../lib/catalog.js";
 
-const publicUser = "-password";
+const publicUser = "fullName username email profilePic about encryptionPublicKey mood moodUpdatedAt availability";
 const pairQuery = (firstId, secondId) => ({ participants: { $all: [firstId, secondId], $size: 2 } });
 
 const otherParticipant = (conversation, myId) =>

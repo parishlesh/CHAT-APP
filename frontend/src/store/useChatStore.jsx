@@ -19,12 +19,15 @@ const hasMessage = (messages, id) => messages.some((message) => idsEqual(message
 
 const hydrate = async (message, peer) => {
   const me = useAuth.getState().authUser;
-  const displayText = message.deleted ? "" : await decryptText(message.text, me, peer);
+  const listed = useChatStore.getState().chatList.find((chat) => idsEqual(chat.user?._id, peer?._id))?.user
+    || useChatStore.getState().requests.find((request) => idsEqual(request.user?._id, peer?._id))?.user;
+  const other = listed?.encryptionPublicKey ? { ...peer, encryptionPublicKey: listed.encryptionPublicKey } : peer;
+  const displayText = message.deleted ? "" : await decryptText(message.text, me, other);
   let replyPreview = null;
   if (message.replyTo && typeof message.replyTo === "object" && message.replyTo._id) {
     replyPreview = {
       ...message.replyTo,
-      displayText: message.replyTo.deleted ? "" : await decryptText(message.replyTo.text, me, peer),
+      displayText: message.replyTo.deleted ? "" : await decryptText(message.replyTo.text, me, other),
     };
   }
   return { ...message, displayText, replyPreview, pending: false };
@@ -387,7 +390,10 @@ export const useChatStore = create((set, get) => ({
     const match = get().chatList.find((chat) => String(chat.user?._id) === String(selectedUser._id))
       || get().requests.find((request) => String(request.user?._id) === String(selectedUser._id));
     set({
-      selectedUser,
+      selectedUser: {
+        ...selectedUser,
+        encryptionPublicKey: match?.user?.encryptionPublicKey || selectedUser.encryptionPublicKey,
+      },
       conversationVibe: match?.conversationVibe || "neutral",
       relationshipType: match?.relationshipType || "",
       myMode: null,
@@ -418,6 +424,9 @@ export const useChatStore = create((set, get) => ({
     try {
       const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}`);
       if (get().selectedUser?._id !== selectedUser._id) return;
+      const myId = useAuth.getState().authUser?._id;
+      const peer = (data.participants || []).find((participant) => String(participant._id) !== String(myId));
+      const encryptionPublicKey = peer?.encryptionPublicKey || get().selectedUser?.encryptionPublicKey;
       set({
         conversationVibe: data.conversationVibe || "neutral",
         relationshipType: data.relationshipType || "",
@@ -428,6 +437,14 @@ export const useChatStore = create((set, get) => ({
         conversationLocked: Boolean(data.locked),
         defaultDisappearing: Boolean(data.defaultDisappearing),
         rituals: data.rituals || [],
+        selectedUser: encryptionPublicKey && get().selectedUser
+          ? { ...get().selectedUser, encryptionPublicKey }
+          : get().selectedUser,
+        chatList: encryptionPublicKey
+          ? get().chatList.map((chat) => idsEqual(chat.user?._id, peer?._id)
+            ? { ...chat, user: { ...chat.user, encryptionPublicKey } }
+            : chat)
+          : get().chatList,
       });
     } catch {
       if (get().selectedUser?._id !== selectedUser._id) return;

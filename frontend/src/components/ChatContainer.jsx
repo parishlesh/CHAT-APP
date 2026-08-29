@@ -33,11 +33,18 @@ const ChatContainer = () => {
 
   useEffect(() => {
     if (!selectedUser?._id) return;
+    const userId = selectedUser._id;
+    let cancelled = false;
     stickToBottom.current = true;
-    getMessages(selectedUser._id);
-    getConversationMood(selectedUser._id);
-    getConversationDetails();
-    return () => clearConversationMood();
+    getConversationMood(userId);
+    (async () => {
+      await getConversationDetails();
+      if (!cancelled) getMessages(userId);
+    })();
+    return () => {
+      cancelled = true;
+      clearConversationMood();
+    };
   }, [selectedUser?._id, getMessages, getConversationMood, clearConversationMood, getConversationDetails]);
 
   useEffect(() => {
