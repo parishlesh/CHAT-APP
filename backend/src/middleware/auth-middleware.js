@@ -4,6 +4,7 @@ import { AppError, asyncHandler } from "../lib/errors.js";
 
 const protectRoute = asyncHandler(async (req, res, next) => {
   const token = req.cookies.jwt;
+  console.log("token", token);
   if (!token) throw new AppError(401, "Unauthorized.");
 
   let decode;
