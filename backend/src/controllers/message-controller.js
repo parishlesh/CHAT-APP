@@ -7,8 +7,7 @@ import { AppError, asyncHandler } from "../lib/errors.js";
 import { logger } from "../lib/logger.js";
 import { requireObjectId, sanitizeQuery, validateExpiresAt, validateImageDataUrl, validateMessageText } from "../lib/validate.js";
 
-export const ALLOWED_MOODS = ["happy", "angry", "calm", "sad", "professional", "excited", "sleepy", "romantic"];
-export const ALLOWED_VIBES = ["neutral", "happy", "angry", "sad", "romantic", "playful", "excited", "calm", "focused", "celebration"];
+import { ALLOWED_MOODS, ALLOWED_VIBES, REACTION_KEYS } from "../lib/catalog.js";
 
 const publicUser = "-password";
 const pairQuery = (firstId, secondId) => ({ participants: { $all: [firstId, secondId], $size: 2 } });
@@ -40,14 +39,16 @@ const moodPayload = async (conversation, myId) => {
     ? conversation.participants.find((participant) => participantId(participant) !== myId.toString())
     : null;
   const [me, other] = await Promise.all([
-    User.findById(myId).select("mood moodUpdatedAt"),
-    otherId ? User.findById(otherId).select("mood moodUpdatedAt") : null,
+    User.findById(myId).select("mood moodUpdatedAt availability"),
+    otherId ? User.findById(otherId).select("mood moodUpdatedAt availability") : null,
   ]);
   return {
     mine: serializeUserMood(me) || moodFromConversationMap(conversation, myId),
     theirs: serializeUserMood(other) || moodFromConversationMap(conversation, otherId),
     conversationId: conversation?._id || null,
     muted: conversation ? isMuted(conversation, myId) : false,
+    mineAvailability: me?.availability || null,
+    theirAvailability: other?.availability || null,
   };
 };
 
@@ -287,14 +288,16 @@ export const getConversationMood = asyncHandler(async (req, res) => {
   const conversation = await findPairConversation(req.user._id, req.params.userId);
   if (!conversation) {
     const [me, other] = await Promise.all([
-      User.findById(req.user._id).select("mood moodUpdatedAt"),
-      User.findById(req.params.userId).select("mood moodUpdatedAt"),
+      User.findById(req.user._id).select("mood moodUpdatedAt availability"),
+      User.findById(req.params.userId).select("mood moodUpdatedAt availability"),
     ]);
     return res.status(200).json({
       mine: serializeUserMood(me),
       theirs: serializeUserMood(other),
       conversationId: null,
       muted: false,
+      mineAvailability: me?.availability || null,
+      theirAvailability: other?.availability || null,
     });
   }
   res.status(200).json(await moodPayload(conversation, req.user._id));
@@ -313,24 +316,53 @@ export const updateConversationMood = asyncHandler(async (req, res) => {
     conversationId: conversation?._id || null,
   });
   if (!conversation) {
-    const other = await User.findById(req.params.userId).select("mood moodUpdatedAt");
+    const other = await User.findById(req.params.userId).select("mood moodUpdatedAt availability");
     return res.status(200).json({
       mine: { mood, updatedAt },
       theirs: serializeUserMood(other),
       conversationId: null,
       muted: false,
+      mineAvailability: null,
+      theirAvailability: other?.availability || null,
     });
   }
   res.status(200).json(await moodPayload(conversation, req.user._id));
 });
 
-const serializeConversation = (conversation) => ({
-  _id: conversation._id,
-  participants: conversation.participants,
-  conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
-  status: conversation.status,
-  lastMessage: conversation.lastMessage,
-});
+const serializeConversation = (conversation, myId) => {
+  const now = Date.now();
+  const modes = (conversation.participantModes || []).filter((mode) => !mode.expiresAt || new Date(mode.expiresAt).getTime() > now);
+  const mineMode = myId ? modes.find((mode) => String(mode.userId) === String(myId)) : null;
+  const theirsMode = myId ? modes.find((mode) => String(mode.userId) !== String(myId)) : null;
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const startOfWeek = new Date(startOfDay);
+  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+  const rituals = (conversation.rituals || []).map((ritual) => {
+    const last = ritual.lastPromptedAt ? new Date(ritual.lastPromptedAt) : null;
+    const due = !ritual.paused && (!last || (ritual.recurrence === "weekly" ? last < startOfWeek : last < startOfDay));
+    return { _id: ritual._id, key: ritual.key, recurrence: ritual.recurrence, paused: ritual.paused, lastPromptedAt: ritual.lastPromptedAt, due };
+  });
+  return {
+    conversationId: conversation._id,
+    _id: conversation._id,
+    participants: conversation.participants,
+    conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
+    status: conversation.status,
+    lastMessage: conversation.lastMessage,
+    relationshipType: conversation.relationshipType || "",
+    relationshipCustom: conversation.relationshipCustom || "",
+    myMode: mineMode || null,
+    theirMode: theirsMode || null,
+    appearance: {
+      wallpaper: conversation.appearance?.wallpaper || "default",
+      bubbleStyle: conversation.appearance?.bubbleStyle || "classic",
+    },
+    locked: Boolean(conversation.lockedBy?.some((id) => String(id) === String(myId))),
+    defaultDisappearing: Boolean(conversation.defaultDisappearing),
+    rituals,
+  };
+};
 
 const loadParticipantConversation = async (conversationId, userId) => {
   requireObjectId(conversationId, "conversation id");
@@ -346,7 +378,7 @@ const loadParticipantConversation = async (conversationId, userId) => {
 
 export const getConversationDetails = asyncHandler(async (req, res) => {
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
-  res.status(200).json(serializeConversation(conversation));
+  res.status(200).json(serializeConversation(conversation, req.user._id));
 });
 
 export const updateConversationVibe = asyncHandler(async (req, res) => {
@@ -358,7 +390,7 @@ export const updateConversationVibe = asyncHandler(async (req, res) => {
   const populated = await Conversation.findById(conversation._id)
     .populate("participants", publicUser)
     .populate("lastMessage");
-  const payload = serializeConversation(populated);
+  const payload = serializeConversation(populated, req.user._id);
   populated.participants.forEach((participant) => {
     if (String(participant._id) === String(req.user._id)) return;
     emitToUser(participant._id, "conversationVibeUpdated", {
@@ -369,6 +401,8 @@ export const updateConversationVibe = asyncHandler(async (req, res) => {
   });
   res.status(200).json(payload);
 });
+
+export { serializeConversation, loadParticipantConversation, participantId };
 
 export const updateConversationMute = asyncHandler(async (req, res) => {
   const muted = Boolean(req.body.muted);
@@ -381,4 +415,45 @@ export const updateConversationMute = asyncHandler(async (req, res) => {
   if (!muted) conversation.mutedBy = conversation.mutedBy.filter((id) => String(id) !== myId);
   await conversation.save();
   res.status(200).json(await moodPayload(conversation, req.user._id));
+});
+
+const ownedConversationMessage = async (req) => {
+  requireObjectId(req.params.messageId, "message id");
+  const message = await Message.findById(req.params.messageId);
+  if (!message) throw new AppError(404, "Message not found.");
+  const mine = String(message.senderId) === String(req.user._id) || String(message.receiverId) === String(req.user._id);
+  if (!mine) throw new AppError(403, "You cannot react to this message.");
+  return message;
+};
+
+const emitReaction = (message, event) => {
+  const payload = { messageId: message._id, conversationId: message.conversationId, reactions: message.reactions || [] };
+  emitToUser(message.senderId, event, payload);
+  if (String(message.receiverId) !== String(message.senderId)) emitToUser(message.receiverId, event, payload);
+};
+
+export const upsertMessageReaction = asyncHandler(async (req, res) => {
+  const key = (req.body.key || "").trim().toLowerCase();
+  if (!REACTION_KEYS.includes(key)) throw new AppError(400, "Invalid reaction.");
+  const message = await ownedConversationMessage(req);
+  const reactions = message.reactions || [];
+  const existing = reactions.find((item) => String(item.userId) === String(req.user._id));
+  const event = existing ? "messageReactionUpdated" : "messageReactionAdded";
+  message.reactions = [
+    ...reactions.filter((item) => String(item.userId) !== String(req.user._id)),
+    { userId: req.user._id, key, createdAt: new Date() },
+  ];
+  await message.save();
+  emitReaction(message, event);
+  res.status(200).json({ reactions: message.reactions });
+});
+
+export const removeMessageReaction = asyncHandler(async (req, res) => {
+  const message = await ownedConversationMessage(req);
+  const before = (message.reactions || []).length;
+  message.reactions = (message.reactions || []).filter((item) => String(item.userId) !== String(req.user._id));
+  if (message.reactions.length === before) return res.status(200).json({ reactions: message.reactions });
+  await message.save();
+  emitReaction(message, "messageReactionRemoved");
+  res.status(200).json({ reactions: message.reactions });
 });

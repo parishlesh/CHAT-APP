@@ -44,6 +44,15 @@ const messageSchema = new mongoose.Schema(
       default: null,
     },
 
+    reactions: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+        key: { type: String, required: true, enum: ["feel", "here", "more", "laugh", "think", "got-it", "thanks"] },
+        createdAt: { type: Date, default: Date.now },
+        _id: false,
+      },
+    ],
+
     // TTL removes this document after its absolute expiration time.
     expiresAt: { type: Date, default: null, index: { expireAfterSeconds: 0 } },
   },

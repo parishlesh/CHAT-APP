@@ -6,6 +6,7 @@ import { useAuth } from "../store/useAuth";
 import { useThemeStore } from "../store/useThemeStore";
 import { formatChatListTime } from "../lib/time";
 import { getMoodMeta } from "../lib/moods";
+import { formatAvailability } from "../config/conversationExtras";
 
 const Sidebar = () => {
   const { chatList, requests, searchResults, activeTab, setActiveTab, selectedUser, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
@@ -75,6 +76,7 @@ const Sidebar = () => {
             : request
               ? "New conversation request"
               : chat?.lastPreview || "No messages yet";
+          const availability = formatAvailability(user.availability);
           const time = chat?.lastMessage?.createdAt || chat?.updatedAt;
           return (
             <li key={request?._id || chat?._id || user._id} className={selected ? "bg-base-200" : "hover:bg-base-200/70"}>
@@ -90,7 +92,7 @@ const Sidebar = () => {
                       {time && !request && !query.trim() && <span className="shrink-0 text-[11px] text-base-content/50">{formatChatListTime(time)}</span>}
                     </span>
                     <span className="flex items-center justify-between gap-2">
-                      <small className="block truncate text-xs text-base-content/60">{preview}</small>
+                      <small className="block truncate text-xs text-base-content/60">{availability ? `${availability} · ${preview}` : preview}</small>
                       {!!chat?.unreadCount && <span className="badge badge-primary badge-xs shrink-0">{chat.unreadCount}</span>}
                     </span>
                   </span>

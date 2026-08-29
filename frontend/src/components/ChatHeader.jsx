@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Bell, BellOff, ChevronRight, MoreVertical, Search, Smile } from "lucide-react";
+import { ArrowLeft, MoreVertical, Search } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
 import { useConversationThemeStore } from "../store/useConversationThemeStore";
 import { getMoodMeta } from "../lib/moods";
 import { getVibeMeta } from "../config/conversationVibes";
-import { requestNotificationPermission } from "../lib/notify";
+import { CONVERSATION_MODES, RELATIONSHIP_TYPES, findMeta, formatAvailability } from "../config/conversationExtras";
+import ConversationSettings from "./ConversationSettings";
 
 const ChatHeader = () => {
-  const { conversationVibe, selectedUser, setSelectedUser, typing, setMessageSearchOpen, openVibePicker } = useChatStore();
+  const { conversationVibe, relationshipType, relationshipCustom, theirMode, selectedUser, setSelectedUser, typing, setMessageSearchOpen } = useChatStore();
   const { onlineUsers } = useAuth();
-  const { mine, theirs, muted, openMoodPicker, setConversationMute } = useConversationThemeStore();
+  const { theirs, theirAvailability } = useConversationThemeStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const myMood = getMoodMeta(mine?.mood);
   const theirMood = getMoodMeta(theirs?.mood);
   const vibe = getVibeMeta(conversationVibe);
+  const relationship = findMeta(RELATIONSHIP_TYPES, relationshipType);
+  const modeMeta = findMeta(CONVERSATION_MODES, theirMode?.key);
+  const availability = formatAvailability(theirAvailability);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -34,6 +37,10 @@ const ChatHeader = () => {
     </span>
   ) : onlineUsers.some((id) => String(id) === String(selectedUser._id)) ? "Online" : "Offline";
 
+  const relationshipLabel = relationship
+    ? `${relationship.emoji} ${relationship.key === "custom" && relationshipCustom ? relationshipCustom : relationship.label}`
+    : null;
+
   return (
     <div className="relative flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-base-300 bg-base-100 px-2 sm:px-3">
       <div className="flex min-w-0 items-center gap-2">
@@ -51,15 +58,18 @@ const ChatHeader = () => {
         />
         <div className="min-w-0">
           <p className="truncate font-medium leading-tight">{selectedUser.fullName}</p>
-          <p className="truncate text-xs text-base-content/60">{status}</p>
-          {theirMood && (
+          <p className="truncate text-xs text-base-content/60">{status}{availability ? ` · ${availability}` : ""}</p>
+          {(theirMood || modeMeta) && (
             <p className="truncate text-[11px] text-base-content/70">
-              Mood {theirMood.emoji} {theirMood.label}
+              {theirMood ? `Mood ${theirMood.emoji} ${theirMood.label}` : ""}
+              {theirMood && modeMeta ? " · " : ""}
+              {modeMeta ? `${modeMeta.emoji} ${modeMeta.label}` : ""}
             </p>
           )}
-          <p className="truncate text-[11px] text-base-content/70">
-            Vibe {vibe.emoji} {vibe.label}
-          </p>
+          <div className="hidden items-center gap-1 overflow-hidden sm:flex">
+            <span className="truncate rounded-full bg-base-200 px-1.5 py-0.5 text-[10px]">Vibe {vibe.emoji} {vibe.label}</span>
+            {relationshipLabel && <span className="truncate rounded-full bg-base-200 px-1.5 py-0.5 text-[10px]">{relationshipLabel}</span>}
+          </div>
         </div>
       </div>
 
@@ -86,50 +96,7 @@ const ChatHeader = () => {
       {settingsOpen && (
         <>
           <button type="button" className="fixed inset-0 z-20 cursor-default" aria-label="Close settings" onClick={() => setSettingsOpen(false)} />
-          <div className="absolute right-2 top-12 z-30 w-56 rounded-lg border border-base-300 bg-base-100 py-1 shadow-md">
-            <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">Conversation settings</p>
-            <div className="px-3 py-1.5 text-xs text-base-content/60">
-              Conversation vibe
-              <p className="text-sm text-base-content">{vibe.emoji} {vibe.label}</p>
-            </div>
-            <button
-              type="button"
-              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200"
-              onClick={() => { setSettingsOpen(false); openVibePicker(); }}
-            >
-              <span>Change vibe</span>
-              <ChevronRight size={16} className="opacity-50" />
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200"
-              onClick={() => { setSettingsOpen(false); openMoodPicker(); }}
-            >
-              <span className="flex items-center gap-2"><Smile size={16} /> How are you feeling?</span>
-              <span className="text-xs opacity-70">{myMood ? `${myMood.emoji} ${myMood.label}` : "Set mood"}</span>
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200"
-              onClick={() => { setSettingsOpen(false); setConversationMute(selectedUser._id, !muted); }}
-            >
-              <span className="flex items-center gap-2">{muted ? <Bell size={16} /> : <BellOff size={16} />} {muted ? "Unmute" : "Mute"}</span>
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200"
-              onClick={async () => { setSettingsOpen(false); await requestNotificationPermission(); }}
-            >
-              <Bell size={16} /> Desktop alerts
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200"
-              onClick={() => { setSettingsOpen(false); setMessageSearchOpen(true); }}
-            >
-              <Search size={16} /> Search
-            </button>
-          </div>
+          <ConversationSettings onClose={() => setSettingsOpen(false)} onSearch={() => setMessageSearchOpen(true)} />
         </>
       )}
     </div>

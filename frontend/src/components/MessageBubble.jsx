@@ -1,16 +1,22 @@
 /* eslint-disable react/prop-types */
 import { useEffect, useRef, useState } from "react";
-import { Check, CheckCheck, Clock3, Copy, MoreVertical, Pencil, Reply, Trash2 } from "lucide-react";
+import { Check, CheckCheck, Clock3, Copy, MoreVertical, Pencil, Reply, Star, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../store/useAuth";
 import { useChatStore } from "../store/useChatStore";
 import { formatMessageTime } from "../lib/time";
+import { MEMORY_TYPES, REACTIONS, bubbleClass } from "../config/conversationExtras";
 
 const MessageBubble = ({ message }) => {
   const { authUser } = useAuth();
-  const { selectedUser, messageMatchIds, setEditingMessage, setReplyingTo, deleteMessage } = useChatStore();
+  const { selectedUser, messageMatchIds, setEditingMessage, setReplyingTo, deleteMessage, appearance, reactToMessage, clearReaction, createMemory } = useChatStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [memoryTitle, setMemoryTitle] = useState("");
+  const [memoryNote, setMemoryNote] = useState("");
+  const [memoryType, setMemoryType] = useState("memory");
+  const [memoryBusy, setMemoryBusy] = useState(false);
   const pressTimer = useRef(null);
   const mine = String(message.senderId) === String(authUser._id);
 
@@ -36,6 +42,13 @@ const MessageBubble = ({ message }) => {
 
   useEffect(() => () => clearPress(), []);
 
+  useEffect(() => {
+    if (!memoryOpen) return;
+    const onKey = (event) => { if (event.key === "Escape") setMemoryOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [memoryOpen]);
+
   return (
     <div id={`msg-${message._id}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -59,8 +72,8 @@ const MessageBubble = ({ message }) => {
         <div
           className={`px-2.5 py-1.5 shadow-none ${message.deleted ? "" : mine ? "pl-7" : "pr-7"} ${messageMatchIds.includes(message._id) ? "ring-2 ring-warning" : ""} ${
             mine
-              ? "bg-primary text-primary-content rounded-lg rounded-br-none"
-              : "bg-base-200 text-base-content rounded-lg rounded-bl-none"
+              ? `bg-primary text-primary-content ${bubbleClass(appearance?.bubbleStyle, true)}`
+              : `bg-base-200 text-base-content ${bubbleClass(appearance?.bubbleStyle, false)}`
           }`}
         >
           {message.deleted ? (
@@ -99,10 +112,23 @@ const MessageBubble = ({ message }) => {
           </div>
         </div>
 
+        {!message.deleted && Boolean(message.reactions?.length) && (
+          <div className="mt-0.5 flex flex-wrap gap-1">
+            {message.reactions.map((reaction) => {
+              const meta = REACTIONS.find((item) => item.key === reaction.key);
+              return (
+                <span key={`${reaction.userId}-${reaction.key}`} className="rounded-full bg-base-200 px-1.5 text-[11px]">
+                  {meta?.emoji || "•"}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         {menuOpen && !message.deleted && (
           <>
             <button type="button" className="fixed inset-0 z-20 cursor-default" aria-label="Close message actions" onClick={() => { setMenuOpen(false); setConfirmDelete(false); }} />
-            <div className={`absolute z-30 mt-1 w-36 rounded-lg border border-base-300 bg-base-100 py-1 text-sm text-base-content shadow-md ${mine ? "right-0" : "left-0"}`}>
+            <div className={`absolute z-30 mt-1 w-44 rounded-lg border border-base-300 bg-base-100 py-1 text-sm text-base-content shadow-md ${mine ? "right-0" : "left-0"}`}>
               {confirmDelete ? (
                 <div className="px-3 py-2">
                   <p className="mb-2 text-xs">Delete message?</p>
@@ -122,6 +148,33 @@ const MessageBubble = ({ message }) => {
                   <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => { setReplyingTo(message); setMenuOpen(false); }}>
                     <Reply size={14} /> Reply
                   </button>
+                  <div className="flex flex-wrap gap-0.5 px-2 py-1">
+                    {REACTIONS.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        title={item.label}
+                        className="rounded p-0.5 hover:bg-base-200"
+                        onClick={() => {
+                          const mineReaction = (message.reactions || []).find((reaction) => String(reaction.userId) === String(authUser._id));
+                          if (mineReaction?.key === item.key) clearReaction(message._id);
+                          else reactToMessage(message._id, item.key);
+                          setMenuOpen(false);
+                        }}
+                      >
+                        {item.emoji}
+                      </button>
+                    ))}
+                  </div>
+                  <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => {
+                    setMemoryTitle((message.displayText || "Memory").slice(0, 80));
+                    setMemoryNote("");
+                    setMemoryType("memory");
+                    setMemoryOpen(true);
+                    setMenuOpen(false);
+                  }}>
+                    <Star size={14} /> Save as Memory
+                  </button>
                   {message.displayText && (
                     <button type="button" className="flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={copyText}>
                       <Copy size={14} /> Copy
@@ -140,6 +193,36 @@ const MessageBubble = ({ message }) => {
                 </>
               )}
             </div>
+          </>
+        )}
+        {memoryOpen && (
+          <>
+            <button type="button" className="fixed inset-0 z-40 cursor-default bg-black/30" aria-label="Close memory" onClick={() => setMemoryOpen(false)} />
+            <form
+              className="absolute z-50 mt-2 w-64 rounded-lg border border-base-300 bg-base-100 p-3 text-base-content shadow-md"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (memoryBusy) return;
+                setMemoryBusy(true);
+                try {
+                  await createMemory({ messageId: message._id, title: memoryTitle, note: memoryNote, type: memoryType });
+                  setMemoryOpen(false);
+                } finally {
+                  setMemoryBusy(false);
+                }
+              }}
+            >
+              <p className="text-sm font-medium">Create Memory</p>
+              <input value={memoryTitle} onChange={(event) => setMemoryTitle(event.target.value)} className="input input-bordered input-sm mt-2 w-full" placeholder="Title" maxLength={80} />
+              <input value={memoryNote} onChange={(event) => setMemoryNote(event.target.value)} className="input input-bordered input-sm mt-2 w-full" placeholder="Optional note" maxLength={280} />
+              <select value={memoryType} onChange={(event) => setMemoryType(event.target.value)} className="select select-bordered select-sm mt-2 w-full">
+                {MEMORY_TYPES.map((item) => <option key={item.key} value={item.key}>{item.emoji} {item.label}</option>)}
+              </select>
+              <div className="mt-2 flex justify-end gap-2">
+                <button type="button" className="text-xs opacity-70" onClick={() => setMemoryOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary btn-xs" disabled={memoryBusy || !memoryTitle.trim()}>Save</button>
+              </div>
+            </form>
           </>
         )}
       </div>

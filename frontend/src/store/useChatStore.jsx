@@ -51,6 +51,9 @@ export const useChatStore = create((set, get) => ({
   chatList: [], requests: [], searchResults: [], activeTab: "chats", typing: false,
   messageSearch: "", messageMatchIds: [], messageSearchOpen: false, matchIndex: 0,
   editingMessage: null, replyingTo: null, conversationVibe: "neutral",
+  relationshipType: "", relationshipCustom: "", myMode: null, theirMode: null,
+  appearance: { wallpaper: "default", bubbleStyle: "classic" }, conversationLocked: false,
+  defaultDisappearing: false, rituals: [], memories: [], settingsPanel: null,
   vibePickerOpen: false, isVibeSaving: false, vibePromptHiddenFor: {},
   getUsers: async () => {},
   getChats: async () => {
@@ -278,8 +281,58 @@ export const useChatStore = create((set, get) => ({
         chatList: state.chatList.map((chat) => idsEqual(chat._id, payload.conversationId) ? { ...chat, conversationVibe: vibe } : chat),
       }));
     });
+    socket.off("conversationMetaUpdated").on("conversationMetaUpdated", (payload) => {
+      if (!payload?.conversationId) return;
+      const openId = conversationIdForUser(get(), get().selectedUser?._id);
+      if (!idsEqual(openId, payload.conversationId)) return;
+      set((state) => ({
+        relationshipType: payload.relationshipType || "",
+        relationshipCustom: payload.relationshipCustom || "",
+        appearance: payload.appearance || state.appearance,
+        defaultDisappearing: Boolean(payload.defaultDisappearing),
+        chatList: state.chatList.map((chat) => idsEqual(chat._id, payload.conversationId)
+          ? { ...chat, relationshipType: payload.relationshipType || "", conversationVibe: payload.conversationVibe || chat.conversationVibe }
+          : chat),
+      }));
+    });
+    socket.off("conversationModeUpdated").on("conversationModeUpdated", (payload) => {
+      if (!payload?.conversationId) return;
+      const openId = conversationIdForUser(get(), get().selectedUser?._id);
+      if (!idsEqual(openId, payload.conversationId)) return;
+      set({ theirMode: payload.mode });
+    });
+    socket.off("conversationStatusUpdated").on("conversationStatusUpdated", (payload) => {
+      if (!payload?.userId) return;
+      useConversationThemeStore.setState((state) => (
+        idsEqual(state.selectedPeerId, payload.userId) ? { theirAvailability: payload.availability } : state
+      ));
+      set((state) => ({
+        chatList: state.chatList.map((chat) => idsEqual(chat.user?._id, payload.userId)
+          ? { ...chat, user: { ...chat.user, availability: payload.availability } }
+          : chat),
+      }));
+    });
+    const applyReactions = (payload) => {
+      if (!payload?.messageId) return;
+      set((state) => ({ messages: state.messages.map((message) => idsEqual(message._id, payload.messageId) ? { ...message, reactions: payload.reactions || [] } : message) }));
+    };
+    socket.off("messageReactionAdded").on("messageReactionAdded", applyReactions);
+    socket.off("messageReactionUpdated").on("messageReactionUpdated", applyReactions);
+    socket.off("messageReactionRemoved").on("messageReactionRemoved", applyReactions);
+    socket.off("conversationMemoryCreated").on("conversationMemoryCreated", (payload) => {
+      if (!payload?.memory) return;
+      set((state) => ({ memories: [payload.memory, ...state.memories.filter((item) => item._id !== payload.memory._id)] }));
+    });
+    socket.off("conversationMemoryDeleted").on("conversationMemoryDeleted", (payload) => {
+      set((state) => ({ memories: state.memories.filter((item) => !idsEqual(item._id, payload.memoryId)) }));
+    });
+    socket.off("ritualUpdated").on("ritualUpdated", (payload) => {
+      const openId = conversationIdForUser(get(), get().selectedUser?._id);
+      if (!idsEqual(openId, payload?.conversationId)) return;
+      set({ rituals: payload.rituals || [] });
+    });
   },
-  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated"].forEach((event) => useAuth.getState().socket?.off(event)),
+  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated", "conversationMetaUpdated", "conversationModeUpdated", "conversationStatusUpdated", "messageReactionAdded", "messageReactionUpdated", "messageReactionRemoved", "conversationMemoryCreated", "conversationMemoryDeleted", "ritualUpdated"].forEach((event) => useAuth.getState().socket?.off(event)),
   setSelectedUser: (selectedUser) => {
     const match = selectedUser && (
       get().chatList.find((chat) => String(chat.user?._id) === String(selectedUser._id))
@@ -288,6 +341,15 @@ export const useChatStore = create((set, get) => ({
     set({
       selectedUser,
       conversationVibe: match?.conversationVibe || "neutral",
+      relationshipType: match?.relationshipType || "",
+      myMode: null,
+      theirMode: null,
+      appearance: { wallpaper: "default", bubbleStyle: "classic" },
+      conversationLocked: false,
+      defaultDisappearing: false,
+      rituals: [],
+      memories: [],
+      settingsPanel: null,
       vibePickerOpen: false,
       isVibeSaving: false,
       messages: [],
@@ -308,7 +370,17 @@ export const useChatStore = create((set, get) => ({
     try {
       const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}`);
       if (get().selectedUser?._id !== selectedUser._id) return;
-      set({ conversationVibe: data.conversationVibe || "neutral" });
+      set({
+        conversationVibe: data.conversationVibe || "neutral",
+        relationshipType: data.relationshipType || "",
+        relationshipCustom: data.relationshipCustom || "",
+        myMode: data.myMode || null,
+        theirMode: data.theirMode || null,
+        appearance: data.appearance || { wallpaper: "default", bubbleStyle: "classic" },
+        conversationLocked: Boolean(data.locked),
+        defaultDisappearing: Boolean(data.defaultDisappearing),
+        rituals: data.rituals || [],
+      });
     } catch {
       if (get().selectedUser?._id !== selectedUser._id) return;
       set({ conversationVibe: "neutral" });
@@ -343,6 +415,109 @@ export const useChatStore = create((set, get) => ({
     const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
     if (!conversationId) return;
     set((state) => ({ vibePromptHiddenFor: { ...state.vibePromptHiddenFor, [conversationId]: true } }));
+  },
+  setSettingsPanel: (settingsPanel) => set({ settingsPanel }),
+  patchConversationMeta: async (body) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    try {
+      const { data } = await axiosInstance.patch(`/messages/conversation/${conversationId}/meta`, body);
+      set({
+        relationshipType: data.relationshipType || "",
+        relationshipCustom: data.relationshipCustom || "",
+        appearance: data.appearance || get().appearance,
+        conversationLocked: Boolean(data.locked),
+        defaultDisappearing: Boolean(data.defaultDisappearing),
+      });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not update conversation.");
+    }
+  },
+  updateMyMode: async (key, until) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    try {
+      const { data } = await axiosInstance.patch(`/messages/conversation/${conversationId}/mode`, { key, until });
+      set({ myMode: data.myMode || null });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not update mode.");
+    }
+  },
+  updateAvailability: async (key, until) => {
+    try {
+      const { data } = await axiosInstance.put("/messages/me/availability", { key, until });
+      const authUser = useAuth.getState().authUser;
+      if (authUser) useAuth.setState({ authUser: { ...authUser, availability: data.availability } });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not update availability.");
+    }
+  },
+  reactToMessage: async (messageId, key) => {
+    try {
+      const { data } = await axiosInstance.put(`/messages/${messageId}/reaction`, { key });
+      set((state) => ({ messages: state.messages.map((message) => idsEqual(message._id, messageId) ? { ...message, reactions: data.reactions } : message) }));
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not react.");
+    }
+  },
+  clearReaction: async (messageId) => {
+    try {
+      const { data } = await axiosInstance.delete(`/messages/${messageId}/reaction`);
+      set((state) => ({ messages: state.messages.map((message) => idsEqual(message._id, messageId) ? { ...message, reactions: data.reactions } : message) }));
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not remove reaction.");
+    }
+  },
+  loadMemories: async () => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    try {
+      const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}/memories`);
+      set({ memories: data });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not load memories.");
+    }
+  },
+  createMemory: async (body) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    try {
+      const { data } = await axiosInstance.post(`/messages/conversation/${conversationId}/memories`, body);
+      set((state) => ({ memories: [data, ...state.memories] }));
+      toast.success("Memory saved");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not save memory.");
+    }
+  },
+  deleteMemory: async (memoryId) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    try {
+      await axiosInstance.delete(`/messages/conversation/${conversationId}/memories/${memoryId}`);
+      set((state) => ({ memories: state.memories.filter((item) => !idsEqual(item._id, memoryId)) }));
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not delete memory.");
+    }
+  },
+  upsertRitual: async (body) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    try {
+      const { data } = await axiosInstance.put(`/messages/conversation/${conversationId}/rituals`, body);
+      set({ rituals: data.rituals || [] });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not update ritual.");
+    }
+  },
+  deleteRitual: async (key) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    try {
+      const { data } = await axiosInstance.delete(`/messages/conversation/${conversationId}/rituals/${key}`);
+      set({ rituals: data.rituals || [] });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not delete ritual.");
+    }
   },
   setActiveTab: (activeTab) => set({ activeTab, searchResults: [] }),
   setChatList: (chatList) => set({ chatList: sortChats(chatList) }),

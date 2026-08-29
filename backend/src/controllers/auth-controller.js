@@ -79,6 +79,7 @@ export const signup = async (req, res) => {
             profilePic: user.profilePic,
             mood: user.mood,
             moodUpdatedAt: user.moodUpdatedAt,
+            availability: user.availability,
         });
     } catch (error) {
         console.log("Signup failed");
@@ -136,6 +137,7 @@ export const login = async (req, res) => {
             profilePic: user.profilePic,
             mood: user.mood,
             moodUpdatedAt: user.moodUpdatedAt,
+            availability: user.availability,
         });
     } catch (error) {
         console.log("Login failed");

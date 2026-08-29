@@ -55,9 +55,14 @@ const userSchema = new mongoose.Schema(
 
     mood: {
       type: String,
-      enum: ["happy", "angry", "calm", "sad", "professional", "excited", "sleepy", "romantic"],
+      enum: ["neutral", "happy", "calm", "playful", "angry", "sad", "romantic", "excited", "thoughtful", "tired", "professional", "sleepy"],
     },
     moodUpdatedAt: Date,
+
+    availability: {
+      key: { type: String, enum: ["quiet", "busy", "away", "reply-later", ""] , default: "" },
+      until: { type: Date, default: null },
+    },
   },
   {
     timestamps: true,

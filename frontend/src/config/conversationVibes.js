@@ -9,6 +9,10 @@ export const CONVERSATION_VIBES = [
   { key: "calm", label: "Calm", emoji: "😌" },
   { key: "focused", label: "Focused", emoji: "🎯" },
   { key: "celebration", label: "Celebration", emoji: "🎉" },
+  { key: "flirty", label: "Flirty", emoji: "😉" },
+  { key: "serious", label: "Serious", emoji: "🧠" },
+  { key: "work", label: "Work", emoji: "💼" },
+  { key: "special", label: "Special", emoji: "✨" },
 ];
 
 export const vibeClassName = (key) => `conversation-vibe vibe-${key || "neutral"}`;

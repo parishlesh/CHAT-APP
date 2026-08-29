@@ -13,13 +13,14 @@ import MessageInput from "./MessageInput";
 import MessageBubble from "./MessageBubble";
 import MessageSkeleton from "./skeleton/MessageSkeleton";
 import ScrollContainer from "./scrollbarContainer";
+import { wallpaperClass, RITUALS, findMeta } from "../config/conversationExtras";
 import { ChevronDown, Search, X } from "lucide-react";
 
 const ChatContainer = () => {
   const {
     messages, getMessages, loadOlderMessages, isMessageLoading, isLoadingOlder, selectedUser, pruneExpired,
     messageSearch, messageMatchIds, searchMessages, messageSearchOpen, setMessageSearchOpen, goToMatch, matchIndex,
-    getConversationDetails,
+    getConversationDetails, appearance, conversationLocked, rituals, upsertRitual, patchConversationMeta,
   } = useChatStore();
   const { getConversationMood, clearConversationMood } = useConversationThemeStore();
   const { authUser } = useAuth();
@@ -71,12 +72,21 @@ const ChatContainer = () => {
     }
   };
 
+  const dueRitual = rituals.find((ritual) => ritual.due);
+  const dueMeta = findMeta(RITUALS, dueRitual?.key);
+
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-base-100" data-theme={personalTheme}>
       <ChatHeader />
       <VibePicker />
       <VibePrompt />
       <MoodBanner />
+      {dueMeta && (
+        <div className="flex items-center justify-between gap-2 border-b border-base-300 px-3 py-1.5 text-xs">
+          <span>{dueMeta.emoji} {dueMeta.prompt}</span>
+          <button type="button" className="opacity-70" onClick={() => upsertRitual({ key: dueRitual.key, recurrence: dueRitual.recurrence, prompted: true })}>Dismiss</button>
+        </div>
+      )}
       {messageSearchOpen && (
         <label className="flex items-center gap-2 border-b border-base-300 bg-base-100 px-3 py-2">
           <Search size={16} className="opacity-60" />
@@ -103,7 +113,7 @@ const ChatContainer = () => {
       ) : (
         <div className="relative min-h-0 flex-1">
           <ScrollContainer ref={scrollerRef} className="h-full" onScroll={onScroll}>
-            <div className="flex min-h-full flex-col justify-end space-y-1.5 px-3 py-3 sm:px-6">
+            <div className={`flex min-h-full flex-col justify-end space-y-1.5 px-3 py-3 sm:px-6 ${wallpaperClass(appearance?.wallpaper)}`}>
               {isLoadingOlder && <p className="py-2 text-center text-xs text-base-content/50">Loading earlier messages…</p>}
               {messages?.length > 0 ? (
                 messages.map((message) => <MessageBubble key={message._id} message={message} />)
@@ -132,6 +142,13 @@ const ChatContainer = () => {
       )}
       <MessageInput />
       <MoodPicker />
+      {conversationLocked && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-base-100/95 p-6 text-center">
+          <p className="text-sm font-medium">This conversation is locked on this device.</p>
+          <p className="mt-1 max-w-xs text-xs opacity-60">This is a reminder only. It is not biometric or device authentication.</p>
+          <button type="button" className="btn btn-primary btn-sm mt-4" onClick={() => patchConversationMeta({ locked: false })}>Unlock</button>
+        </div>
+      )}
     </div>
   );
 };

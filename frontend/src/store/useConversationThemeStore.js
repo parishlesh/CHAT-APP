@@ -9,6 +9,7 @@ const emptyMoodState = {
   mine: null,
   theirs: null,
   muted: false,
+  theirAvailability: null,
   isMoodLoading: false,
   isMoodSaving: false,
   isPickerOpen: false,
@@ -39,6 +40,7 @@ export const useConversationThemeStore = create((set, get) => ({
         mine: data.mine,
         theirs: data.theirs,
         muted: Boolean(data.muted),
+        theirAvailability: data.theirAvailability || null,
         isMoodLoading: false,
       });
     } catch (error) {
@@ -71,6 +73,7 @@ export const useConversationThemeStore = create((set, get) => ({
         theirs: data.theirs,
         conversationId: data.conversationId,
         muted: Boolean(data.muted),
+        theirAvailability: data.theirAvailability || get().theirAvailability,
         isMoodSaving: false,
       });
     } catch (error) {

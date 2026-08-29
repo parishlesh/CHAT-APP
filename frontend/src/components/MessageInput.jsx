@@ -9,7 +9,7 @@ const MessageInput = () => {
   const [selectedImages, setSelectedImages] = useState([]);
   const [previewUrls, setPreviewUrls] = useState([]);
   const [disappearing, setDisappearing] = useState(false);
-  const { sendMessage, selectedUser, editingMessage, setEditingMessage, editMessage, replyingTo, setReplyingTo, sending } = useChatStore();
+  const { sendMessage, selectedUser, editingMessage, setEditingMessage, editMessage, replyingTo, setReplyingTo, sending, defaultDisappearing } = useChatStore();
   const { socket, authUser } = useAuth();
   const fileInputRef = useRef(null);
   const typingTimer = useRef(null);
@@ -37,6 +37,10 @@ const MessageInput = () => {
   };
 
   useEffect(() => () => stopTyping(), [selectedUser, socket]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setDisappearing(Boolean(defaultDisappearing));
+  }, [selectedUser?._id, defaultDisappearing]);
 
   useEffect(() => {
     if (editingMessage) {
