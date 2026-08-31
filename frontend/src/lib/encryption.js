@@ -5,6 +5,62 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const prefix = "e2e:v1:";
+const prefixV2 = "e2e:v2:";
+let sessionWrapPassword = "";
+let encryptionStatus = "idle";
+const readyWaiters = [];
+
+const WRAP_SESSION_KEY = "chat-e2e-wrap";
+
+const readStoredWrapSecret = () => {
+  try {
+    return sessionStorage.getItem(WRAP_SESSION_KEY) || "";
+  } catch {
+    return "";
+  }
+};
+
+export const getEncryptionStatus = () => encryptionStatus;
+export const isEncryptionReady = () => encryptionStatus === "ready";
+
+export const whenEncryptionReady = () => {
+  if (encryptionStatus === "ready") return Promise.resolve();
+  return new Promise((resolve) => readyWaiters.push(resolve));
+};
+
+const setEncryptionStatus = (status) => {
+  encryptionStatus = status;
+  if (status === "ready") {
+    while (readyWaiters.length) readyWaiters.shift()();
+  }
+};
+
+export const resetEncryptionStatus = () => {
+  encryptionStatus = "idle";
+  readyWaiters.length = 0;
+};
+
+export const setSessionWrapPassword = (password) => {
+  sessionWrapPassword = typeof password === "string" && password ? password : "";
+  try {
+    if (sessionWrapPassword) sessionStorage.setItem(WRAP_SESSION_KEY, sessionWrapPassword);
+    else sessionStorage.removeItem(WRAP_SESSION_KEY);
+  } catch {
+    /* private browsing */
+  }
+};
+
+export const clearSessionWrapPassword = () => {
+  sessionWrapPassword = "";
+  try {
+    sessionStorage.removeItem(WRAP_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+  resetEncryptionStatus();
+};
+
+const wrapSecret = (password) => password || sessionWrapPassword || readStoredWrapSecret();
 
 const userIdOf = (user) => {
   if (user == null) return "";
@@ -66,7 +122,9 @@ const isSamePublicKey = (left, right) => {
 };
 
 const parseEncryptedPayload = (text) => {
-  if (!isEncryptedText(text)) return { reason: "INVALID_E2E_VERSION" };
+  if (typeof text !== "string" || !text.startsWith(prefix) || text.startsWith(prefixV2)) {
+    return { reason: "INVALID_E2E_VERSION" };
+  }
   const body = text.slice(prefix.length).trim();
   const separator = body.indexOf(".");
   if (separator <= 0 || separator === body.length - 1) return { reason: "INVALID_PAYLOAD" };
@@ -191,14 +249,12 @@ async function persistIdentityOnServer(axiosInstance, publicJwk, backup) {
   return data;
 }
 
-async function sharedAesKey(myId, peerPublicJwk) {
+async function aesFromEcdh(privateKey, peerPublicJwk) {
   const publicJwk = toPublicJwk(peerPublicJwk);
   if (!publicJwk) throw new Error("invalid peer key");
-  const loaded = await tryLoadLocalKeyPair(myId);
-  if (!loaded) throw new Error("missing local identity");
   try {
     const peerKey = await crypto.subtle.importKey("jwk", publicJwk, { name: "ECDH", namedCurve: "P-256" }, false, []);
-    const bits = await crypto.subtle.deriveBits({ name: "ECDH", public: peerKey }, loaded.privateKey, 256);
+    const bits = await crypto.subtle.deriveBits({ name: "ECDH", public: peerKey }, privateKey, 256);
     const material = await crypto.subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);
     return crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt: encoder.encode("chat-app-e2e-v1"), info: encoder.encode("message-text") }, material, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
   } catch (error) {
@@ -207,9 +263,63 @@ async function sharedAesKey(myId, peerPublicJwk) {
   }
 }
 
+async function sharedAesKey(myId, peerPublicJwk) {
+  const loaded = await tryLoadLocalKeyPair(myId);
+  if (!loaded) throw new Error("missing local identity");
+  return aesFromEcdh(loaded.privateKey, peerPublicJwk);
+}
+
+async function loadDecryptIdentity(me) {
+  const id = userIdOf(me);
+  let loaded = null;
+  try {
+    loaded = await tryLoadLocalKeyPair(id);
+  } catch {
+    loaded = null;
+  }
+  if (!loaded) throw new Error("missing local identity");
+  const published = toPublicJwk(me?.encryptionPublicKey);
+  if (published && !isSamePublicKey(loaded.publicJwk, published)) {
+    throw new Error("identity mismatch");
+  }
+  return loaded;
+}
+
+async function encryptAesBlob(aesKey, text) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, encoder.encode(text));
+  return `${toBase64(iv)}.${toBase64(encrypted)}`;
+}
+
+function parseV2Payload(text) {
+  const body = text.slice(prefixV2.length).trim();
+  const parts = body.split(".");
+  if (parts.length !== 4 && parts.length !== 6) return { reason: "INVALID_PAYLOAD" };
+  const eph = toPublicJwk({ kty: "EC", crv: "P-256", x: parts[0], y: parts[1] });
+  if (!eph) return { reason: "INVALID_PAYLOAD" };
+  const blobs = [];
+  try {
+    for (let index = 2; index < parts.length; index += 2) {
+      const iv = fromBase64(parts[index]);
+      const ciphertext = fromBase64(parts[index + 1]);
+      if (iv.length !== 12 || !ciphertext.length) return { reason: "INVALID_PAYLOAD" };
+      blobs.push({ iv, ciphertext });
+    }
+  } catch {
+    return { reason: "INVALID_PAYLOAD" };
+  }
+  return { eph, blobs };
+}
+
 export async function ensureEncryptionKey(user, axiosInstance, password) {
   const id = userIdOf(user);
-  if (!id || !window.crypto?.subtle) return stripBackup(user);
+  if (password) setSessionWrapPassword(password);
+  const secret = wrapSecret(password);
+  setEncryptionStatus("initializing");
+  if (!id || !window.crypto?.subtle) {
+    setEncryptionStatus("pending_identity");
+    return stripBackup(user);
+  }
   const serverPublic = toPublicJwk(user.encryptionPublicKey);
   try {
     let local = null;
@@ -219,9 +329,16 @@ export async function ensureEncryptionKey(user, axiosInstance, password) {
       local = null;
     }
 
-    if (password && user.encryptionKeyBackup) {
+    if (local && serverPublic && !isSamePublicKey(local.publicJwk, serverPublic)) {
+      logIdentity("local-mismatch-ignored", serverPublic);
+      localStorage.removeItem(privateKeyName(id));
+      localStorage.removeItem(`${privateKeyName(id)}-public`);
+      local = null;
+    }
+
+    if (secret && user.encryptionKeyBackup) {
       try {
-        const restored = toPrivateJwk(await unwrapPrivateJwk(user.encryptionKeyBackup, password));
+        const restored = toPrivateJwk(await unwrapPrivateJwk(user.encryptionKeyBackup, secret));
         const restoredPublic = toPublicJwk(restored);
         if (restoredPublic && (!serverPublic || isSamePublicKey(restoredPublic, serverPublic))) {
           persistLocalIdentity(id, restored);
@@ -235,56 +352,87 @@ export async function ensureEncryptionKey(user, axiosInstance, password) {
 
     if (local && isSamePublicKey(local.publicJwk, serverPublic)) {
       logIdentity("local-match", local.publicJwk);
-      if (password && !user.encryptionKeyBackup) {
+      if (secret && !user.encryptionKeyBackup) {
         try {
-          const backup = await wrapPrivateJwk(local.privateJwk, password);
+          const backup = await wrapPrivateJwk(local.privateJwk, secret);
           const data = await persistIdentityOnServer(axiosInstance, local.publicJwk, backup);
+          setEncryptionStatus("ready");
           return stripBackup({ ...user, ...data, encryptionPublicKey: local.publicJwk });
         } catch {
-          /* backup upload is optional for this session */
+          logDecrypt("BACKUP_UPLOAD_FAILED");
         }
       }
+      setEncryptionStatus("ready");
       return stripBackup({ ...user, encryptionPublicKey: local.publicJwk });
     }
 
+    if (local && !serverPublic) {
+      logIdentity("local-first-upload", local.publicJwk);
+      const backup = secret ? await wrapPrivateJwk(local.privateJwk, secret) : undefined;
+      const data = await persistIdentityOnServer(axiosInstance, local.publicJwk, backup);
+      setEncryptionStatus("ready");
+      return stripBackup({ ...user, ...data, encryptionPublicKey: local.publicJwk });
+    }
+
     if (serverPublic) {
-      if (local && !isSamePublicKey(local.publicJwk, serverPublic)) {
-        logIdentity("local-mismatch-kept-server", serverPublic);
-      }
+      setEncryptionStatus("pending_identity");
       return stripBackup({ ...user, encryptionPublicKey: serverPublic });
     }
 
-    const created = local || await generateLocalIdentity(id);
-    logIdentity(local ? "local-first-upload" : "generated", created.publicJwk);
-    const backup = password ? await wrapPrivateJwk(created.privateJwk, password) : undefined;
+    const created = await generateLocalIdentity(id);
+    logIdentity("generated", created.publicJwk);
+    const backup = secret ? await wrapPrivateJwk(created.privateJwk, secret) : undefined;
     const data = await persistIdentityOnServer(axiosInstance, created.publicJwk, backup);
+    setEncryptionStatus("ready");
     return stripBackup({ ...user, ...data, encryptionPublicKey: created.publicJwk });
   } catch {
+    setEncryptionStatus("pending_identity");
     return stripBackup(user);
   }
 }
 
-export async function encryptText(text, me, recipient) {
-  if (!text || !toPublicJwk(recipient?.encryptionPublicKey) || !window.crypto?.subtle) return text;
-  const id = userIdOf(me);
-  let loaded = null;
-  try {
-    loaded = await tryLoadLocalKeyPair(id);
-  } catch {
-    loaded = null;
+export async function encryptText(text, me, recipient, options = {}) {
+  const recipientPublic = toPublicJwk(recipient?.encryptionPublicKey);
+  if (!text || !recipientPublic || !window.crypto?.subtle) return text;
+  if (options.version === 1) {
+    const id = userIdOf(me);
+    let loaded = null;
+    try {
+      loaded = await tryLoadLocalKeyPair(id);
+    } catch {
+      loaded = null;
+    }
+    if (!loaded && !toPublicJwk(me?.encryptionPublicKey)) {
+      loaded = await generateLocalIdentity(id);
+    }
+    if (!loaded) throw new Error("missing local identity");
+    const key = await sharedAesKey(id, recipientPublic);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(text));
+    return `${prefix}${toBase64(iv)}.${toBase64(encrypted)}`;
   }
-  if (!loaded && !toPublicJwk(me?.encryptionPublicKey)) {
-    loaded = await generateLocalIdentity(id);
+
+  const eph = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const ephPublic = toPublicJwk(await crypto.subtle.exportKey("jwk", eph.publicKey));
+  const senderPublic = toPublicJwk(me?.encryptionPublicKey);
+  const recipientBlob = await encryptAesBlob(await aesFromEcdh(eph.privateKey, recipientPublic), text);
+  const parts = [ephPublic.x, ephPublic.y, recipientBlob];
+  if (senderPublic && !isSamePublicKey(senderPublic, recipientPublic)) {
+    parts.push(await encryptAesBlob(await aesFromEcdh(eph.privateKey, senderPublic), text));
   }
-  if (!loaded) throw new Error("missing local identity");
-  const key = await sharedAesKey(id, recipient.encryptionPublicKey);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(text));
-  return `${prefix}${toBase64(iv)}.${toBase64(encrypted)}`;
+  if (import.meta.env?.DEV) {
+    console.info("[e2e-encrypt]", {
+      version: 2,
+      algorithm: "ECDH-P-256-ECIES",
+      recipientFingerprint: publicKeyFingerprint(recipientPublic).slice(0, 24),
+      senderFingerprint: publicKeyFingerprint(senderPublic).slice(0, 24),
+    });
+  }
+  return `${prefixV2}${parts.join(".")}`;
 }
 
 export const ENCRYPTED_PREFIX = prefix;
-export const isEncryptedText = (text) => typeof text === "string" && text.startsWith(prefix);
+export const isEncryptedText = (text) => typeof text === "string" && (text.startsWith(prefix) || text.startsWith(prefixV2));
 export const peerKeyFingerprint = publicKeyFingerprint;
 
 export const resolveConversationPeerKey = (me, conversationPeer, listedPeer) => {
@@ -313,6 +461,54 @@ export async function decryptMessage(text, me, peer) {
     logDecrypt("NO_LOCAL_USER");
     return { status: "pending", text: "", reason: "NO_LOCAL_USER" };
   }
+  if (encryptionStatus === "idle" || encryptionStatus === "initializing") {
+    logDecrypt("NOT_READY");
+    return { status: "pending", text: "", reason: "NOT_READY" };
+  }
+
+  const failFromError = (error) => {
+    const message = String(error?.message || "");
+    if (message.includes("missing local identity")) {
+      logDecrypt("NO_LOCAL_KEY");
+      return { status: "pending", text: "", reason: "NO_LOCAL_KEY" };
+    }
+    if (message.includes("identity mismatch")) {
+      logDecrypt("IDENTITY_MISMATCH");
+      return { status: "pending", text: "", reason: "IDENTITY_MISMATCH" };
+    }
+    const reason = message.includes("invalid peer") ? "INVALID_PEER_KEY" : "CRYPTO_DECRYPT_FAILED";
+    logDecrypt(reason, {
+      version: text.startsWith(prefixV2) ? 2 : 1,
+      localFingerprint: peerKeyFingerprint(me?.encryptionPublicKey).slice(0, 24),
+      peerFingerprint: peerKeyFingerprint(peer?.encryptionPublicKey).slice(0, 24),
+    });
+    return { status: "failed", text: "Unable to decrypt this message", reason };
+  };
+
+  if (text.startsWith(prefixV2)) {
+    const parsed = parseV2Payload(text);
+    if (parsed.reason) {
+      logDecrypt(parsed.reason);
+      return { status: "failed", text: "Unable to decrypt this message", reason: parsed.reason };
+    }
+    try {
+      const identity = await loadDecryptIdentity(me);
+      for (const blob of parsed.blobs) {
+        try {
+          const key = await aesFromEcdh(identity.privateKey, parsed.eph);
+          const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: blob.iv }, key, blob.ciphertext);
+          return { status: "decrypted", text: decoder.decode(decrypted), reason: null };
+        } catch {
+          /* try next envelope copy */
+        }
+      }
+      logDecrypt("CRYPTO_DECRYPT_FAILED", { version: 2, localFingerprint: publicKeyFingerprint(identity.publicJwk).slice(0, 24) });
+      return { status: "failed", text: "Unable to decrypt this message", reason: "CRYPTO_DECRYPT_FAILED" };
+    } catch (error) {
+      return failFromError(error);
+    }
+  }
+
   const peerPublic = toPublicJwk(peer?.encryptionPublicKey);
   if (!peerPublic) {
     logDecrypt("NO_PEER_KEY");
@@ -328,18 +524,12 @@ export async function decryptMessage(text, me, peer) {
     return { status: "failed", text: "Unable to decrypt this message", reason: parsed.reason };
   }
   try {
+    await loadDecryptIdentity(me);
     const key = await sharedAesKey(myId, peerPublic);
     const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: parsed.iv }, key, parsed.ciphertext);
     return { status: "decrypted", text: decoder.decode(decrypted), reason: null };
   } catch (error) {
-    const message = String(error?.message || "");
-    if (message.includes("missing local identity")) {
-      logDecrypt("NO_LOCAL_KEY");
-      return { status: "pending", text: "", reason: "NO_LOCAL_KEY" };
-    }
-    const reason = message.includes("invalid peer") ? "INVALID_PEER_KEY" : "CRYPTO_DECRYPT_FAILED";
-    logDecrypt(reason);
-    return { status: "failed", text: "Unable to decrypt this message", reason };
+    return failFromError(error);
   }
 }
 

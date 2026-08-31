@@ -273,7 +273,7 @@ export const updateEncryptionKey = async (req, res) => {
 
         const update = {};
         if (!existingFp && incomingPublic) update.encryptionPublicKey = incomingPublic;
-        if (incomingBackup) update.encryptionKeyBackup = incomingBackup;
+        if (incomingBackup && !user.encryptionKeyBackup) update.encryptionKeyBackup = incomingBackup;
         if (!Object.keys(update).length) {
             return res.status(200).json(toSelfUser(user));
         }

@@ -180,10 +180,6 @@ export const useChatStore = create((set, get) => ({
   retryPendingDecryption: async (options = {}) => {
     const { selectedUser, messages } = get();
     const selectedId = selectedUser?._id;
-    const me = useAuth.getState().authUser;
-    const listed = get().chatList.find((chat) => idsEqual(chat.user?._id, selectedUser?._id))?.user
-      || get().requests.find((request) => idsEqual(request.user?._id, selectedUser?._id))?.user;
-    if (!resolveConversationPeerKey(me, selectedUser, listed)) return;
     const includeFailed = Boolean(options.includeFailed);
     const needsWork = (message) => (
       message.decryptStatus === "pending"

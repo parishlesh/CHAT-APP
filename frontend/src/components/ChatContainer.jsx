@@ -27,7 +27,7 @@ const ChatContainer = () => {
     retryPendingDecryption, conversationStatus, conversationInitiatedBy,
   } = useChatStore();
   const { getConversationMood, clearConversationMood } = useConversationThemeStore();
-  const { authUser } = useAuth();
+  const { authUser, encryptionReady } = useAuth();
   const conversationTheme = themeForMood(authUser?.mood);
   const peerFingerprint = peerKeyFingerprint(selectedUser?.encryptionPublicKey);
   const incomingPending = conversationStatus === "pending" && conversationInitiatedBy && String(conversationInitiatedBy) !== String(authUser?._id);
@@ -51,7 +51,11 @@ const ChatContainer = () => {
       cancelled = true;
       clearConversationMood();
     };
-  }, [selectedUser?._id, getMessages, getConversationMood, clearConversationMood, getConversationDetails]);
+  }, [selectedUser?._id, encryptionReady, getMessages, getConversationMood, clearConversationMood, getConversationDetails]);
+
+  useEffect(() => {
+    if (encryptionReady) retryPendingDecryption();
+  }, [encryptionReady, retryPendingDecryption]);
 
   useEffect(() => {
     if (peerFingerprint) retryPendingDecryption({ includeFailed: true });
