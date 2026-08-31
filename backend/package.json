@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "node --test tests/origins.test.js tests/validate.test.js tests/presence.test.js tests/errors.test.js tests/catalog.test.js tests/encryption-contract.test.js"
+    "test": "node --test tests/origins.test.js tests/validate.test.js tests/presence.test.js tests/errors.test.js tests/catalog.test.js tests/encryption-contract.test.js tests/conversation-dates.test.js tests/conversation-access.test.js"
   },
   "keywords": [],
   "author": "",

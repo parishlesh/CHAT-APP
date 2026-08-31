@@ -8,6 +8,7 @@ import { logger } from "../lib/logger.js";
 import { requireObjectId, sanitizeQuery, validateExpiresAt, validateImageDataUrl, validateMessageText } from "../lib/validate.js";
 
 import { ALLOWED_MOODS, ALLOWED_VIBES, REACTION_KEYS } from "../lib/catalog.js";
+import { REQUEST_DECLINED_EVENT, REQUEST_DECLINED_TEXT, assertCanSendMessage, initiatorId } from "../lib/conversation-access.js";
 
 const publicUser = "fullName username email profilePic about encryptionPublicKey mood moodUpdatedAt availability";
 const pairQuery = (firstId, secondId) => ({ participants: { $all: [firstId, secondId], $size: 2 } });
@@ -163,6 +164,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
   }
 
   let conversation = await Conversation.findOne(pairQuery(senderId, receiverId));
+  assertCanSendMessage(conversation, senderId);
   let createdRequest = false;
   if (!conversation) {
     conversation = await Conversation.create({ participants: [senderId, receiverId], initiatedBy: senderId, status: "pending" });
@@ -194,10 +196,8 @@ export const sendMessage = asyncHandler(async (req, res) => {
   await conversation.save();
   const populated = await Message.findById(message._id).populate("replyTo", "senderId text image deleted");
 
-  if (conversation.status === "accepted") {
-    emitToUser(receiverId, "newMessage", populated);
-    emitToUser(senderId, "newMessage", populated);
-  }
+  emitToUser(receiverId, "newMessage", populated);
+  emitToUser(senderId, "newMessage", populated);
   if (createdRequest) {
     const request = await Conversation.findById(conversation._id)
       .populate("initiatedBy", publicUser)
@@ -242,7 +242,13 @@ export const deleteMessage = asyncHandler(async (req, res) => {
 });
 
 export const getChats = asyncHandler(async (req, res) => {
-  const conversations = await Conversation.find({ participants: req.user._id, status: "accepted" })
+  const conversations = await Conversation.find({
+    participants: req.user._id,
+    $or: [
+      { status: "accepted" },
+      { status: { $in: ["pending", "declined"] }, initiatedBy: req.user._id },
+    ],
+  })
     .populate("participants", publicUser).populate("lastMessage").sort({ updatedAt: -1 }).limit(200);
   const unread = await Message.aggregate([
     { $match: { conversationId: { $in: conversations.map((item) => item._id) }, receiverId: req.user._id, seen: false, deleted: false } },
@@ -256,6 +262,8 @@ export const getChats = asyncHandler(async (req, res) => {
     updatedAt: conversation.updatedAt,
     unreadCount: unreadByConversation[conversation._id.toString()] || 0,
     muted: isMuted(conversation, req.user._id),
+    status: conversation.status,
+    initiatedBy: conversation.initiatedBy,
     conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
   })));
 });
@@ -273,8 +281,22 @@ const respondToRequest = async (req, res, status) => {
   conversation.status = status;
   if (status === "accepted") conversation.acceptedAt = new Date();
   await conversation.save();
+  let systemMessage = null;
+  if (status === "declined") {
+    systemMessage = await Message.create({
+      conversationId: conversation._id,
+      senderId: req.user._id,
+      receiverId: conversation.initiatedBy,
+      text: REQUEST_DECLINED_TEXT,
+      kind: "system",
+      systemEvent: REQUEST_DECLINED_EVENT,
+    });
+    conversation.lastMessage = systemMessage._id;
+    await conversation.save();
+  }
   const populated = await Conversation.findById(conversation._id).populate("participants", publicUser).populate("initiatedBy", publicUser).populate("lastMessage");
   const initiator = otherParticipant(populated, req.user._id);
+  if (systemMessage) emitToUser(initiator._id, "newMessage", systemMessage);
   emitToUser(initiator._id, "conversationUpdated", populated);
   emitToUser(req.user._id, "conversationUpdated", populated);
   res.status(200).json(populated);
@@ -360,6 +382,8 @@ const serializeConversation = (conversation, myId) => {
     },
     locked: Boolean(conversation.lockedBy?.some((id) => String(id) === String(myId))),
     defaultDisappearing: Boolean(conversation.defaultDisappearing),
+    status: conversation.status,
+    initiatedBy: initiatorId(conversation),
     rituals,
   };
 };
@@ -423,6 +447,8 @@ const ownedConversationMessage = async (req) => {
   if (!message) throw new AppError(404, "Message not found.");
   const mine = String(message.senderId) === String(req.user._id) || String(message.receiverId) === String(req.user._id);
   if (!mine) throw new AppError(403, "You cannot react to this message.");
+  const conversation = await Conversation.findById(message.conversationId);
+  assertCanSendMessage(conversation, req.user._id);
   return message;
 };
 

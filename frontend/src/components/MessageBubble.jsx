@@ -10,7 +10,7 @@ import { isEncryptedText } from "../lib/encryption";
 
 const MessageBubble = ({ message }) => {
   const { authUser } = useAuth();
-  const { selectedUser, messageMatchIds, setEditingMessage, setReplyingTo, deleteMessage, appearance, reactToMessage, clearReaction, createMemory } = useChatStore();
+  const { selectedUser, messageMatchIds, setEditingMessage, setReplyingTo, deleteMessage, appearance, reactToMessage, clearReaction, createMemory, conversationStatus, conversationInitiatedBy } = useChatStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -22,15 +22,17 @@ const MessageBubble = ({ message }) => {
   const pressTimer = useRef(null);
   const lastMineReaction = useRef(undefined);
   const mine = String(message.senderId) === String(authUser._id);
+  const canCompose = !conversationStatus || conversationStatus === "accepted" || String(conversationInitiatedBy) === String(authUser._id);
   const decrypting = message.decryptStatus === "pending" || isEncryptedText(message.displayText);
   const decryptFailed = message.decryptStatus === "failed";
+  const isSystem = message.kind === "system" || Boolean(message.systemEvent);
 
   const clearPress = () => {
     clearTimeout(pressTimer.current);
     pressTimer.current = null;
   };
   const openMenu = () => {
-    if (message.deleted) return;
+    if (message.deleted || isSystem || !canCompose) return;
     setMenuOpen(true);
   };
 
@@ -63,6 +65,16 @@ const MessageBubble = ({ message }) => {
     return () => window.removeEventListener("keydown", onKey);
   }, [memoryOpen]);
 
+  if (isSystem) {
+    return (
+      <div id={`msg-${message._id}`} className="ui-msg-enter flex justify-center py-2">
+        <p className="max-w-[90%] rounded-full border border-base-300 bg-base-200 px-3 py-1 text-center text-[11px] text-base-content/70">
+          {message.displayText || "This user has rejected your conversation request."}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div id={`msg-${message._id}`} className={`ui-msg-enter flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -72,7 +84,7 @@ const MessageBubble = ({ message }) => {
         onTouchEnd={clearPress}
         onTouchMove={clearPress}
       >
-        {!message.deleted && (
+        {!message.deleted && canCompose && (
           <button
             type="button"
             aria-label="Message actions"

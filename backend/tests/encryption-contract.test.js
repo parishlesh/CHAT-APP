@@ -53,3 +53,33 @@ test("ciphertext is never returned while the peer key is missing", async () => {
   assert.equal(pending.text, "");
   assert.equal(await decryptText(ciphertext, alice, {}), "");
 });
+
+test("private jwk extra fields do not break decryption", async () => {
+  const { decryptMessage } = await import("../../frontend/src/lib/encryption.js");
+  const alice = { _id: "alice-ops" };
+  const bob = { _id: "bob-ops" };
+  await provision(alice);
+  await provision(bob);
+  const alicePrivName = "chat-e2e-private-alice-ops";
+  const priv = JSON.parse(localStorage.getItem(alicePrivName));
+  localStorage.setItem(alicePrivName, JSON.stringify({ ...priv, key_ops: ["deriveKey", "deriveBits"], alg: "ECDH", ext: true }));
+  const alicePub = JSON.parse(localStorage.getItem(`${alicePrivName}-public`));
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-ops-public"));
+  const ciphertext = await encryptText("still works", bob, { encryptionPublicKey: alicePub });
+  const result = await decryptMessage(ciphertext, alice, { encryptionPublicKey: bobPub });
+  assert.equal(result.status, "decrypted");
+  assert.equal(result.text, "still works");
+});
+
+test("own public key is not treated as a usable peer key", async () => {
+  const { decryptMessage, resolveConversationPeerKey } = await import("../../frontend/src/lib/encryption.js");
+  const alice = { _id: "alice" };
+  await provision(alice);
+  const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-alice-public"));
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-public"));
+  const ciphertext = await encryptText("hello user 2", alice, { encryptionPublicKey: bobPub });
+  const result = await decryptMessage(ciphertext, { ...alice, encryptionPublicKey: alicePub }, { encryptionPublicKey: alicePub });
+  assert.equal(result.status, "pending");
+  assert.equal(result.text, "");
+  assert.equal(resolveConversationPeerKey({ ...alice, encryptionPublicKey: alicePub }, { _id: "alice", encryptionPublicKey: alicePub }), null);
+});

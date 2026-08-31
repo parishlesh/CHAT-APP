@@ -3,13 +3,17 @@ import { useChatStore } from "../store/useChatStore";
 import { useConversationThemeStore } from "../store/useConversationThemeStore";
 import { useAuth } from "../store/useAuth";
 import { themeForMood } from "../lib/moods";
+import { peerKeyFingerprint } from "../lib/encryption";
+import { formatConversationDayKey } from "../lib/time";
 import ChatHeader from "./ChatHeader";
 import MoodBanner from "./MoodBanner";
 import MoodPicker from "./MoodPicker";
 import VibePrompt from "./VibePrompt";
 import VibePicker from "./VibePicker";
+import RequestComposer from "./RequestComposer";
 import MessageInput from "./MessageInput";
 import MessageBubble from "./MessageBubble";
+import DateSeparator from "./DateSeparator";
 import MessageSkeleton from "./skeleton/MessageSkeleton";
 import ScrollContainer from "./scrollbarContainer";
 import { wallpaperClass, RITUALS, findMeta } from "../config/conversationExtras";
@@ -20,11 +24,14 @@ const ChatContainer = () => {
     messages, getMessages, loadOlderMessages, isMessageLoading, isLoadingOlder, selectedUser, pruneExpired,
     messageSearch, messageMatchIds, searchMessages, messageSearchOpen, setMessageSearchOpen, goToMatch, matchIndex,
     getConversationDetails, appearance, conversationLocked, rituals, upsertRitual, patchConversationMeta,
-    retryPendingDecryption,
+    retryPendingDecryption, conversationStatus, conversationInitiatedBy,
   } = useChatStore();
   const { getConversationMood, clearConversationMood } = useConversationThemeStore();
   const { authUser } = useAuth();
   const conversationTheme = themeForMood(authUser?.mood);
+  const peerFingerprint = peerKeyFingerprint(selectedUser?.encryptionPublicKey);
+  const incomingPending = conversationStatus === "pending" && conversationInitiatedBy && String(conversationInitiatedBy) !== String(authUser?._id);
+  const incomingDeclined = conversationStatus === "declined" && conversationInitiatedBy && String(conversationInitiatedBy) !== String(authUser?._id);
   const endRef = useRef(null);
   const scrollerRef = useRef(null);
   const stickToBottom = useRef(true);
@@ -47,8 +54,8 @@ const ChatContainer = () => {
   }, [selectedUser?._id, getMessages, getConversationMood, clearConversationMood, getConversationDetails]);
 
   useEffect(() => {
-    if (selectedUser?.encryptionPublicKey) retryPendingDecryption();
-  }, [selectedUser?.encryptionPublicKey, retryPendingDecryption]);
+    if (peerFingerprint) retryPendingDecryption({ includeFailed: true });
+  }, [peerFingerprint, retryPendingDecryption]);
 
   useEffect(() => {
     const timer = setInterval(pruneExpired, 30000);
@@ -126,7 +133,16 @@ const ChatContainer = () => {
             <div className={`flex min-h-full flex-col justify-end space-y-1.5 px-3 py-3 sm:px-6 ${wallpaperClass(appearance?.wallpaper)}`}>
               {isLoadingOlder && <p className="py-2 text-center text-xs text-base-content/50">Loading earlier messages…</p>}
               {messages?.length > 0 ? (
-                messages.map((message) => <MessageBubble key={message._id} message={message} />)
+                messages.map((message, index) => {
+                  const previous = messages[index - 1];
+                  const showDate = formatConversationDayKey(message.createdAt) !== formatConversationDayKey(previous?.createdAt);
+                  return (
+                    <div key={message._id}>
+                      {showDate && <DateSeparator createdAt={message.createdAt} />}
+                      <MessageBubble message={message} />
+                    </div>
+                  );
+                })
               ) : (
                 <p className="pb-16 text-center text-sm text-base-content/50">
                   Start a conversation with {selectedUser?.fullName}
@@ -150,7 +166,15 @@ const ChatContainer = () => {
           )}
         </div>
       )}
-      <MessageInput />
+      {incomingPending ? (
+        <RequestComposer />
+      ) : incomingDeclined ? (
+        <div className="shrink-0 border-t border-base-300 px-4 py-3 text-center text-xs text-base-content/60">
+          You declined this conversation request.
+        </div>
+      ) : (
+        <MessageInput />
+      )}
       <MoodPicker />
       {conversationLocked && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-base-100/95 p-6 text-center">

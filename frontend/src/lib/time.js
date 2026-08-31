@@ -7,6 +7,27 @@ export const formatMessageTime = (dateString) => {
   });
 };
 
+export const formatConversationDayKey = (dateString) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+};
+
+export const formatConversationDayLabel = (dateString) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) return "TODAY";
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "YESTERDAY";
+  const options = { day: "numeric", month: "long" };
+  if (date.getFullYear() !== now.getFullYear()) options.year = "numeric";
+  return date.toLocaleDateString("en-GB", options);
+};
+
 export const formatChatListTime = (dateString) => {
   if (!dateString) return "";
   const date = new Date(dateString);

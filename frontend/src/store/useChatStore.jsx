@@ -1,7 +1,7 @@
 import toast from "react-hot-toast";
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
-import { decryptMessage, encryptText, isEncryptedText } from "../lib/encryption";
+import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKey, toPublicJwk } from "../lib/encryption";
 import { notifyIncomingMessage } from "../lib/notify";
 import { getVibeMeta } from "../config/conversationVibes";
 import { useAuth } from "./useAuth";
@@ -19,9 +19,19 @@ const hasMessage = (messages, id) => messages.some((message) => idsEqual(message
 
 const hydrate = async (message, peer) => {
   const me = useAuth.getState().authUser;
+  if (message.kind === "system" || message.systemEvent) {
+    return {
+      ...message,
+      displayText: message.text || "This user has rejected your conversation request.",
+      decryptStatus: "decrypted",
+      replyPreview: null,
+      pending: false,
+    };
+  }
   const listed = useChatStore.getState().chatList.find((chat) => idsEqual(chat.user?._id, peer?._id))?.user
     || useChatStore.getState().requests.find((request) => idsEqual(request.user?._id, peer?._id))?.user;
-  const other = listed?.encryptionPublicKey ? { ...peer, encryptionPublicKey: listed.encryptionPublicKey } : peer;
+  const peerPublicKey = resolveConversationPeerKey(me, peer, listed);
+  const other = { encryptionPublicKey: peerPublicKey };
   if (message.deleted) {
     return { ...message, displayText: "", decryptStatus: "decrypted", replyPreview: null, pending: false };
   }
@@ -52,6 +62,7 @@ const lastPreview = async (chat, me) => {
   const last = chat.lastMessage;
   if (!last) return "";
   if (last.deleted) return "This message was deleted";
+  if (last.kind === "system" || last.systemEvent) return last.text || "This user has rejected your conversation request.";
   if (last.image && !last.text) return "Photo";
   const result = await decryptMessage(last.text, me, chat.user);
   if (result.status !== "decrypted" || isEncryptedText(result.text)) return last.image ? "Photo" : "Message";
@@ -60,11 +71,38 @@ const lastPreview = async (chat, me) => {
 };
 
 const asPendingMessage = (message) => {
+  if (message.kind === "system" || message.systemEvent) {
+    return {
+      ...message,
+      displayText: message.text || "This user has rejected your conversation request.",
+      decryptStatus: "decrypted",
+      pending: false,
+    };
+  }
   if (message.deleted) return { ...message, displayText: "", decryptStatus: "decrypted", pending: false };
   if (!isEncryptedText(message.text)) {
     return { ...message, displayText: message.text || "", decryptStatus: "decrypted", pending: false };
   }
   return { ...message, displayText: "", decryptStatus: "pending", pending: false };
+};
+
+const composerAllowed = (state) => {
+  const me = useAuth.getState().authUser?._id;
+  const { conversationStatus, conversationInitiatedBy } = state;
+  if (!conversationStatus || conversationStatus === "accepted") return true;
+  return idsEqual(conversationInitiatedBy, me);
+};
+
+const participantNotMe = (conversation, myId) =>
+  (conversation?.participants || []).find((participant) => !idsEqual(participant._id, myId))
+  || conversation?.user;
+
+const preferExistingPlaintext = (previous, hydrated) => {
+  if (hydrated.decryptStatus === "decrypted") return hydrated;
+  if (previous?.decryptStatus === "decrypted" && previous.displayText && !isEncryptedText(previous.displayText)) {
+    return { ...hydrated, displayText: previous.displayText, decryptStatus: "decrypted" };
+  }
+  return hydrated;
 };
 
 const parseMessagePage = (data) => {
@@ -82,6 +120,7 @@ const chatSessionState = {
   appearance: { wallpaper: "default", bubbleStyle: "classic" }, conversationLocked: false,
   defaultDisappearing: false, rituals: [], memories: [], settingsPanel: null,
   vibePickerOpen: false, isVibeSaving: false, vibePromptHiddenFor: {},
+  conversationStatus: null, conversationInitiatedBy: null, openConversationId: null, requestBusy: false,
 };
 
 export const useChatStore = create((set, get) => ({
@@ -138,16 +177,22 @@ export const useChatStore = create((set, get) => ({
       if (get().loadToken === token) set({ isMessageLoading: false });
     }
   },
-  retryPendingDecryption: async () => {
+  retryPendingDecryption: async (options = {}) => {
     const { selectedUser, messages } = get();
     const selectedId = selectedUser?._id;
-    if (!selectedUser?.encryptionPublicKey || !messages.some((message) => (
-      message.decryptStatus === "pending" || message.replyPreview?.decryptStatus === "pending"
-    ))) return;
+    const me = useAuth.getState().authUser;
+    const listed = get().chatList.find((chat) => idsEqual(chat.user?._id, selectedUser?._id))?.user
+      || get().requests.find((request) => idsEqual(request.user?._id, selectedUser?._id))?.user;
+    if (!resolveConversationPeerKey(me, selectedUser, listed)) return;
+    const includeFailed = Boolean(options.includeFailed);
+    const needsWork = (message) => (
+      message.decryptStatus === "pending"
+      || message.replyPreview?.decryptStatus === "pending"
+      || (includeFailed && (message.decryptStatus === "failed" || message.replyPreview?.decryptStatus === "failed"))
+    );
+    if (!messages.some(needsWork)) return;
     const hydrated = await Promise.all(messages.map((message) => (
-      message.decryptStatus === "pending" || message.replyPreview?.decryptStatus === "pending"
-        ? hydrate(message, selectedUser)
-        : message
+      needsWork(message) ? hydrate(message, selectedUser) : message
     )));
     if (get().selectedUser?._id !== selectedId) return;
     set({ messages: hydrated });
@@ -186,7 +231,7 @@ export const useChatStore = create((set, get) => ({
   sendMessage: async (messageData) => {
     const { selectedUser, messages, replyingTo, sending } = get();
     const me = useAuth.getState().authUser;
-    if (!selectedUser || sending) return;
+    if (!selectedUser || sending || !composerAllowed(get())) return;
     const tempId = `temp-${Date.now()}`;
     const pending = {
       _id: tempId,
@@ -210,11 +255,15 @@ export const useChatStore = create((set, get) => ({
         replyTo: replyingTo?._id || null,
       });
       const hydrated = await hydrate(data, selectedUser);
+      const keepPlaintext = hydrated.decryptStatus !== "decrypted" && messageData.text;
+      const nextMessage = keepPlaintext
+        ? { ...hydrated, displayText: messageData.text, decryptStatus: "decrypted" }
+        : hydrated;
       set((state) => ({
         sending: false,
-        messages: hasMessage(state.messages, hydrated._id)
+        messages: hasMessage(state.messages, nextMessage._id)
           ? state.messages.filter((message) => message._id !== tempId)
-          : state.messages.map((message) => message._id === tempId ? hydrated : message),
+          : state.messages.map((message) => message._id === tempId ? nextMessage : message),
       }));
     } catch (error) {
       set((state) => ({ sending: false, messages: state.messages.filter((message) => message._id !== tempId) }));
@@ -222,6 +271,7 @@ export const useChatStore = create((set, get) => ({
     }
   },
   editMessage: async (messageId, text) => {
+    if (!composerAllowed(get())) return;
     const { selectedUser } = get();
     const previous = get().messages.find((message) => message._id === messageId);
     set((state) => ({
@@ -270,12 +320,33 @@ export const useChatStore = create((set, get) => ({
     messages: state.messages.filter((message) => !message.expiresAt || new Date(message.expiresAt) > new Date()),
   })),
   respondToRequest: async (id, action) => {
+    if (!id || get().requestBusy) return;
+    set({ requestBusy: true });
     try {
       const { data } = await axiosInstance.put(`/messages/requests/${id}/${action}`);
-      set((state) => ({ requests: state.requests.filter((request) => request._id !== id) }));
-      if (action === "accept") { set({ activeTab: "chats" }); get().getChats(); }
+      get().applyConversationResponse(data);
       return data;
-    } catch (error) { toast.error(error.response?.data?.message || "Could not update request."); }
+    } catch (error) {
+      set({ requestBusy: false });
+      toast.error(error.response?.data?.message || "Could not update request.");
+    }
+  },
+  applyConversationResponse: (conversation) => {
+    if (!conversation?._id) return set({ requestBusy: false });
+    const myId = useAuth.getState().authUser?._id;
+    const other = participantNotMe(conversation, myId);
+    const open = get().selectedUser && other && idsEqual(get().selectedUser._id, other._id);
+    set((state) => ({
+      requestBusy: false,
+      requests: state.requests.filter((request) => !idsEqual(request._id, conversation._id)),
+      conversationStatus: open ? conversation.status : state.conversationStatus,
+      conversationInitiatedBy: open ? (conversation.initiatedBy?._id || conversation.initiatedBy) : state.conversationInitiatedBy,
+      openConversationId: open ? conversation._id : state.openConversationId,
+      activeTab: conversation.status === "accepted" ? "chats" : state.activeTab,
+      editingMessage: open && conversation.status !== "accepted" ? null : state.editingMessage,
+      replyingTo: open && conversation.status !== "accepted" ? null : state.replyingTo,
+    }));
+    if (conversation.status === "accepted" || conversation.status === "declined") get().getChats();
   },
   subscribeToMessages: () => {
     const socket = useAuth.getState().socket;
@@ -300,13 +371,13 @@ export const useChatStore = create((set, get) => ({
         if (get().selectedUser?._id !== selectedId) return;
         set((state) => {
           if (hasMessage(state.messages, message._id) && pendingIndex < 0) {
-            return { messages: state.messages.map((item) => idsEqual(item._id, message._id) ? hydrated : item) };
+            return { messages: state.messages.map((item) => idsEqual(item._id, message._id) ? preferExistingPlaintext(item, hydrated) : item) };
           }
           const next = [...state.messages];
           const livePending = next.findIndex((item) => item.pending && idsEqual(item.senderId, message.senderId));
-          if (livePending >= 0) next.splice(livePending, 1, hydrated);
+          if (livePending >= 0) next.splice(livePending, 1, preferExistingPlaintext(next[livePending], hydrated));
           else if (!hasMessage(next, message._id)) next.push(hydrated);
-          else return { messages: next.map((item) => idsEqual(item._id, message._id) ? hydrated : item) };
+          else return { messages: next.map((item) => idsEqual(item._id, message._id) ? preferExistingPlaintext(item, hydrated) : item) };
           return { messages: next };
         });
       } else if (!mine) {
@@ -338,8 +409,14 @@ export const useChatStore = create((set, get) => ({
       toast("New conversation request");
     });
     socket.off("conversationUpdated").on("conversationUpdated", (conversation) => {
-      set((state) => ({ requests: state.requests.filter((request) => request._id !== conversation._id) }));
-      if (conversation.status === "accepted") get().getChats();
+      const myId = useAuth.getState().authUser?._id;
+      const other = participantNotMe(conversation, myId);
+      const open = get().selectedUser && other && idsEqual(get().selectedUser._id, other._id);
+      get().applyConversationResponse(conversation);
+      const iAmInitiator = idsEqual(conversation.initiatedBy?._id || conversation.initiatedBy, myId);
+      if (conversation.status === "declined" && iAmInitiator && !open) {
+        toast("Your conversation request was rejected.");
+      }
     });
     socket.off("conversationMoodUpdated").on("conversationMoodUpdated", (payload) => {
       useConversationThemeStore.getState().setMoodFromSocket(payload);
@@ -441,6 +518,9 @@ export const useChatStore = create((set, get) => ({
       isVibeSaving: false,
       hasMore: false,
       isMessageLoading: false,
+      conversationStatus: null,
+      conversationInitiatedBy: null,
+      openConversationId: null,
     });
     useConversationThemeStore.getState().clearConversationMood();
   },
@@ -455,10 +535,13 @@ export const useChatStore = create((set, get) => ({
     set({
       selectedUser: {
         ...selectedUser,
-        encryptionPublicKey: match?.user?.encryptionPublicKey || selectedUser.encryptionPublicKey,
+        encryptionPublicKey: selectedUser.encryptionPublicKey || match?.user?.encryptionPublicKey,
       },
       conversationVibe: match?.conversationVibe || "neutral",
       relationshipType: match?.relationshipType || "",
+      conversationStatus: match?.status || null,
+      conversationInitiatedBy: match?.initiatedBy?._id || match?.initiatedBy || null,
+      openConversationId: match?._id || null,
       myMode: null,
       theirMode: null,
       appearance: { wallpaper: "default", bubbleStyle: "classic" },
@@ -489,7 +572,8 @@ export const useChatStore = create((set, get) => ({
       if (get().selectedUser?._id !== selectedUser._id) return;
       const myId = useAuth.getState().authUser?._id;
       const peer = (data.participants || []).find((participant) => String(participant._id) !== String(myId));
-      const encryptionPublicKey = peer?.encryptionPublicKey || get().selectedUser?.encryptionPublicKey;
+      const encryptionPublicKey = toPublicJwk(peer?.encryptionPublicKey)
+        || toPublicJwk(get().selectedUser?.encryptionPublicKey);
       set({
         conversationVibe: data.conversationVibe || "neutral",
         relationshipType: data.relationshipType || "",
@@ -500,6 +584,9 @@ export const useChatStore = create((set, get) => ({
         conversationLocked: Boolean(data.locked),
         defaultDisappearing: Boolean(data.defaultDisappearing),
         rituals: data.rituals || [],
+        conversationStatus: data.status || null,
+        conversationInitiatedBy: data.initiatedBy?._id || data.initiatedBy || null,
+        openConversationId: data._id || data.conversationId || get().openConversationId,
         selectedUser: encryptionPublicKey && get().selectedUser
           ? { ...get().selectedUser, encryptionPublicKey }
           : get().selectedUser,
@@ -509,7 +596,7 @@ export const useChatStore = create((set, get) => ({
             : chat)
           : get().chatList,
       });
-      await get().retryPendingDecryption();
+      await get().retryPendingDecryption({ includeFailed: true });
     } catch {
       if (get().selectedUser?._id !== selectedUser._id) return;
       set({ conversationVibe: "neutral" });
@@ -582,6 +669,7 @@ export const useChatStore = create((set, get) => ({
     }
   },
   reactToMessage: async (messageId, key) => {
+    if (!composerAllowed(get())) return;
     try {
       const { data } = await axiosInstance.put(`/messages/${messageId}/reaction`, { key });
       set((state) => ({ messages: state.messages.map((message) => idsEqual(message._id, messageId) ? { ...message, reactions: data.reactions } : message) }));
@@ -590,6 +678,7 @@ export const useChatStore = create((set, get) => ({
     }
   },
   clearReaction: async (messageId) => {
+    if (!composerAllowed(get())) return;
     try {
       const { data } = await axiosInstance.delete(`/messages/${messageId}/reaction`);
       set((state) => ({ messages: state.messages.map((message) => idsEqual(message._id, messageId) ? { ...message, reactions: data.reactions } : message) }));

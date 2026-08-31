@@ -9,7 +9,7 @@ import { getMoodMeta } from "../lib/moods";
 import { formatAvailability } from "../config/conversationExtras";
 
 const Sidebar = () => {
-  const { chatList, requests, searchResults, activeTab, setActiveTab, selectedUser, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
+  const { chatList, requests, searchResults, activeTab, setActiveTab, selectedUser, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages, requestBusy } = useChatStore();
   const { onlineUsers, authUser, isLogout } = useAuth();
   const { appliedAppTheme } = useThemeStore();
   const [query, setQuery] = useState("");
@@ -75,7 +75,11 @@ const Sidebar = () => {
             ? `@${user.username}`
             : request
               ? "New conversation request"
-              : chat?.lastPreview || "No messages yet";
+              : chat?.status === "pending"
+                ? "Waiting for them to accept"
+                : chat?.status === "declined"
+                  ? (chat.lastPreview || "Request declined")
+                  : chat?.lastPreview || "No messages yet";
           const availability = formatAvailability(user.availability);
           const time = chat?.lastMessage?.createdAt || chat?.updatedAt;
           return (
@@ -99,8 +103,8 @@ const Sidebar = () => {
                 </button>
                 {request && (
                   <div className="flex shrink-0 gap-1">
-                    <button aria-label="Accept" onClick={() => respondToRequest(request._id, "accept")} className="btn btn-success btn-xs">Accept</button>
-                    <button aria-label="Reject" onClick={() => respondToRequest(request._id, "reject")} className="btn btn-ghost btn-xs">Reject</button>
+                    <button type="button" aria-label="Accept" disabled={requestBusy} onClick={() => respondToRequest(request._id, "accept")} className="btn btn-success btn-xs">Accept</button>
+                    <button type="button" aria-label="Reject" disabled={requestBusy} onClick={() => respondToRequest(request._id, "reject")} className="btn btn-ghost btn-xs">Reject</button>
                   </div>
                 )}
               </div>

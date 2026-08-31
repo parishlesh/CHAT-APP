@@ -10,7 +10,7 @@ const MessageInput = () => {
   const [selectedImages, setSelectedImages] = useState([]);
   const [previewUrls, setPreviewUrls] = useState([]);
   const [disappearing, setDisappearing] = useState(false);
-  const { sendMessage, selectedUser, editingMessage, setEditingMessage, editMessage, replyingTo, setReplyingTo, sending, defaultDisappearing } = useChatStore();
+  const { sendMessage, selectedUser, editingMessage, setEditingMessage, editMessage, replyingTo, setReplyingTo, sending, defaultDisappearing, conversationStatus, conversationInitiatedBy } = useChatStore();
   const { socket, authUser } = useAuth();
   const fileInputRef = useRef(null);
   const typingTimer = useRef(null);
@@ -121,6 +121,8 @@ const MessageInput = () => {
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
+    const canCompose = !conversationStatus || conversationStatus === "accepted" || String(conversationInitiatedBy) === String(authUser?._id);
+    if (!canCompose) return;
     if (editingMessage) {
       if (!text.trim() || sending) return;
       await editMessage(editingMessage._id, text.trim());
