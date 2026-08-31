@@ -3,7 +3,7 @@ import { axiosInstance } from "../lib/axios.jsx";
 import toast from "react-hot-toast";
 // import { socket } from "../lib/socket";
 import {io} from "socket.io-client";
-import { ensureEncryptionKey, setSessionWrapPassword, clearSessionWrapPassword, isEncryptionReady } from "../lib/encryption";
+import { ensureEncryptionKey, setSessionWrapPassword, clearSessionWrapPassword, isEncryptionReady, isEncryptionInitialized } from "../lib/encryption";
 
 const BASE_URL =
     import.meta.env.MODE === "development"
@@ -28,13 +28,14 @@ export const useAuth = create((set, get) => ({
     onlineUsers: [],
     socket: null,
     encryptionReady: false,
+    encryptionInitialized: false,
 
     checkAuth: async () => {
         try {
             const res = await axiosInstance.get("/auth/check")
 
             const user = await ensureEncryptionKey(res.data, axiosInstance);
-            set({ authUser: user, encryptionReady: isEncryptionReady() })
+            set({ authUser: user, encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized() })
             get().connectSocket()
             import("./useChatStore").then(({ useChatStore }) => {
               useChatStore.getState().retryPendingDecryption();
@@ -42,7 +43,7 @@ export const useAuth = create((set, get) => ({
 
         } catch (error) {
             clearSessionWrapPassword();
-            set({ authUser: null, encryptionReady: false })
+            set({ authUser: null, encryptionReady: false, encryptionInitialized: false })
             await clearAccountStores();
         } finally {
             set({ isCheckingAuth: false })
@@ -56,7 +57,7 @@ export const useAuth = create((set, get) => ({
             setSessionWrapPassword(data.password);
             const user = await ensureEncryptionKey(res.data, axiosInstance, data.password);
             await clearAccountStores();
-            set({ authUser: user, encryptionReady: isEncryptionReady() })
+            set({ authUser: user, encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized() })
             toast.success("account created successfully")
             get().connectSocket()
 
@@ -78,7 +79,7 @@ export const useAuth = create((set, get) => ({
             clearSessionWrapPassword();
             await clearAccountStores();
             get().disconnectSocket()
-            set({ authUser: null, encryptionReady: false })
+            set({ authUser: null, encryptionReady: false, encryptionInitialized: false })
             toast.success("logged out successfully")
         } catch (error) {
             toast.error(error.response?.data?.message || "Logout failed.")
@@ -93,7 +94,7 @@ export const useAuth = create((set, get) => ({
             setSessionWrapPassword(data.password);
             const user = await ensureEncryptionKey(res.data, axiosInstance, data.password);
             await clearAccountStores();
-            set({ authUser: user, encryptionReady: isEncryptionReady() });
+            set({ authUser: user, encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized() });
             toast.success("Logged in successfully");
 
             get().connectSocket();
@@ -114,7 +115,7 @@ export const useAuth = create((set, get) => ({
             const user = await ensureEncryptionKey(res.data, axiosInstance);
             set({
                 authUser: user,
-                encryptionReady: isEncryptionReady(),
+                encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized(),
             })
             toast.success("profile updated successfully")
         } catch (error) {

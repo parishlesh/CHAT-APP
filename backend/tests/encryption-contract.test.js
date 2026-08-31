@@ -52,9 +52,10 @@ test("ciphertext is never returned while the local identity is missing", async (
   const ciphertext = await encryptText("secret", { ...alice, encryptionPublicKey: alicePub }, { encryptionPublicKey: bobPub });
   assert.equal(isEncryptedText(ciphertext), true);
   const pending = await decryptMessage(ciphertext, { _id: "stranger" }, { encryptionPublicKey: alicePub });
-  assert.equal(pending.status, "pending");
-  assert.equal(pending.text, "");
-  assert.equal(await decryptText(ciphertext, { _id: "stranger" }, { encryptionPublicKey: alicePub }), "");
+  assert.equal(pending.status, "failed");
+  assert.equal(pending.text, "Unable to decrypt this message");
+  assert.equal(isEncryptedText(pending.text), false);
+  assert.equal(await decryptText(ciphertext, { _id: "stranger" }, { encryptionPublicKey: alicePub }), "Unable to decrypt this message");
 });
 
 test("private jwk extra fields do not break decryption", async () => {
@@ -209,4 +210,5 @@ test("a mismatched local key is ignored and does not replace the published ident
   assert.equal(puts.length, 0);
   assert.equal(result.encryptionPublicKey.x, published.x);
   assert.equal(isEncryptionReady(), false);
+  assert.ok(localStorage.getItem("chat-e2e-private-stable-user"));
 });

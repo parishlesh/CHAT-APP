@@ -22,15 +22,16 @@ const readStoredWrapSecret = () => {
 
 export const getEncryptionStatus = () => encryptionStatus;
 export const isEncryptionReady = () => encryptionStatus === "ready";
+export const isEncryptionInitialized = () => encryptionStatus === "ready" || encryptionStatus === "unavailable";
 
 export const whenEncryptionReady = () => {
-  if (encryptionStatus === "ready") return Promise.resolve();
+  if (isEncryptionInitialized()) return Promise.resolve();
   return new Promise((resolve) => readyWaiters.push(resolve));
 };
 
 const setEncryptionStatus = (status) => {
   encryptionStatus = status;
-  if (status === "ready") {
+  if (status === "ready" || status === "unavailable") {
     while (readyWaiters.length) readyWaiters.shift()();
   }
 };
@@ -317,7 +318,7 @@ export async function ensureEncryptionKey(user, axiosInstance, password) {
   const secret = wrapSecret(password);
   setEncryptionStatus("initializing");
   if (!id || !window.crypto?.subtle) {
-    setEncryptionStatus("pending_identity");
+    setEncryptionStatus("unavailable");
     return stripBackup(user);
   }
   const serverPublic = toPublicJwk(user.encryptionPublicKey);
@@ -326,13 +327,6 @@ export async function ensureEncryptionKey(user, axiosInstance, password) {
     try {
       local = await tryLoadLocalKeyPair(id);
     } catch {
-      local = null;
-    }
-
-    if (local && serverPublic && !isSamePublicKey(local.publicJwk, serverPublic)) {
-      logIdentity("local-mismatch-ignored", serverPublic);
-      localStorage.removeItem(privateKeyName(id));
-      localStorage.removeItem(`${privateKeyName(id)}-public`);
       local = null;
     }
 
@@ -348,6 +342,11 @@ export async function ensureEncryptionKey(user, axiosInstance, password) {
       } catch {
         logDecrypt("BACKUP_UNWRAP_FAILED");
       }
+    }
+
+    if (local && serverPublic && !isSamePublicKey(local.publicJwk, serverPublic)) {
+      logIdentity("local-mismatch-ignored", serverPublic);
+      local = null;
     }
 
     if (local && isSamePublicKey(local.publicJwk, serverPublic)) {
@@ -375,7 +374,7 @@ export async function ensureEncryptionKey(user, axiosInstance, password) {
     }
 
     if (serverPublic) {
-      setEncryptionStatus("pending_identity");
+      setEncryptionStatus("unavailable");
       return stripBackup({ ...user, encryptionPublicKey: serverPublic });
     }
 
@@ -386,7 +385,7 @@ export async function ensureEncryptionKey(user, axiosInstance, password) {
     setEncryptionStatus("ready");
     return stripBackup({ ...user, ...data, encryptionPublicKey: created.publicJwk });
   } catch {
-    setEncryptionStatus("pending_identity");
+    setEncryptionStatus("unavailable");
     return stripBackup(user);
   }
 }
@@ -461,20 +460,18 @@ export async function decryptMessage(text, me, peer) {
     logDecrypt("NO_LOCAL_USER");
     return { status: "pending", text: "", reason: "NO_LOCAL_USER" };
   }
-  if (encryptionStatus === "idle" || encryptionStatus === "initializing") {
+  const initPending = encryptionStatus === "idle" || encryptionStatus === "initializing";
+  if (initPending) {
     logDecrypt("NOT_READY");
     return { status: "pending", text: "", reason: "NOT_READY" };
   }
 
   const failFromError = (error) => {
     const message = String(error?.message || "");
-    if (message.includes("missing local identity")) {
-      logDecrypt("NO_LOCAL_KEY");
-      return { status: "pending", text: "", reason: "NO_LOCAL_KEY" };
-    }
-    if (message.includes("identity mismatch")) {
-      logDecrypt("IDENTITY_MISMATCH");
-      return { status: "pending", text: "", reason: "IDENTITY_MISMATCH" };
+    if (message.includes("missing local identity") || message.includes("identity mismatch")) {
+      const reason = message.includes("identity mismatch") ? "IDENTITY_MISMATCH" : "NO_LOCAL_KEY";
+      logDecrypt(reason);
+      return { status: "failed", text: "Unable to decrypt this message", reason };
     }
     const reason = message.includes("invalid peer") ? "INVALID_PEER_KEY" : "CRYPTO_DECRYPT_FAILED";
     logDecrypt(reason, {
@@ -511,12 +508,16 @@ export async function decryptMessage(text, me, peer) {
 
   const peerPublic = toPublicJwk(peer?.encryptionPublicKey);
   if (!peerPublic) {
+    if (peer?.peerResolved) {
+      logDecrypt("NO_PEER_KEY");
+      return { status: "failed", text: "Unable to decrypt this message", reason: "NO_PEER_KEY" };
+    }
     logDecrypt("NO_PEER_KEY");
     return { status: "pending", text: "", reason: "NO_PEER_KEY" };
   }
   if (isSamePublicKey(peerPublic, me?.encryptionPublicKey)) {
     logDecrypt("INVALID_PEER_KEY", { detail: "own-key" });
-    return { status: "pending", text: "", reason: "INVALID_PEER_KEY" };
+    return { status: "failed", text: "Unable to decrypt this message", reason: "INVALID_PEER_KEY" };
   }
   const parsed = parseEncryptedPayload(text);
   if (parsed.reason) {

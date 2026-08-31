@@ -31,7 +31,7 @@ const hydrate = async (message, peer) => {
   const listed = useChatStore.getState().chatList.find((chat) => idsEqual(chat.user?._id, peer?._id))?.user
     || useChatStore.getState().requests.find((request) => idsEqual(request.user?._id, peer?._id))?.user;
   const peerPublicKey = resolveConversationPeerKey(me, peer, listed);
-  const other = { encryptionPublicKey: peerPublicKey };
+  const other = { encryptionPublicKey: peerPublicKey, peerResolved: Boolean(peer || listed) };
   if (message.deleted) {
     return { ...message, displayText: "", decryptStatus: "decrypted", replyPreview: null, pending: false };
   }
