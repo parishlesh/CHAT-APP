@@ -8,7 +8,7 @@ import { ensureEncryptionKey } from "../lib/encryption";
 const BASE_URL =
     import.meta.env.MODE === "development"
         ? "http://localhost:5001"
-        : import.meta.env.VITE_API_URL;
+        : window.location.origin;
         
 const clearAccountStores = async () => {
   const [{ useChatStore }, { useConversationThemeStore }] = await Promise.all([

@@ -1,5 +1,5 @@
 import cloudinary from "../lib/cloudinary.js";
-import generateToken from "../lib/utils.js";
+import generateToken, { authCookieOptions } from "../lib/utils.js";
 import User from "../models/user-model.js";
 import bcrypt from "bcryptjs";
 
@@ -150,13 +150,7 @@ export const login = async (req, res) => {
 
 export const logout = (req, res) => {
     try {
-        res.cookie("jwt", "", {
-            maxAge: 0,
-            httpOnly: true,
-            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-            secure: process.env.NODE_ENV === "production",
-            path: "/",
-        });
+        res.cookie("jwt", "", authCookieOptions({ clearing: true }));
 
         res.status(200).json({
             message: "Logged out successfully",
