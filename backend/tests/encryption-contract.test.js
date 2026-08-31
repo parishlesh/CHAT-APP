@@ -83,3 +83,48 @@ test("own public key is not treated as a usable peer key", async () => {
   assert.equal(result.text, "");
   assert.equal(resolveConversationPeerKey({ ...alice, encryptionPublicKey: alicePub }, { _id: "alice", encryptionPublicKey: alicePub }), null);
 });
+
+test("a second device does not generate or upload a replacement identity", async () => {
+  const { ensureEncryptionKey } = await import("../../frontend/src/lib/encryption.js");
+  const serverPub = JSON.parse(localStorage.getItem("chat-e2e-private-alice-public"));
+  const puts = [];
+  const axios = { put: async (_url, body) => { puts.push(body); return { data: body }; } };
+  const result = await ensureEncryptionKey({ _id: "device-b-user", encryptionPublicKey: serverPub }, axios, "password1");
+  assert.equal(puts.length, 0);
+  assert.equal(localStorage.getItem("chat-e2e-private-device-b-user"), null);
+  assert.equal(result.encryptionPublicKey.x, serverPub.x);
+  assert.equal("encryptionKeyBackup" in result, false);
+});
+
+test("wrapped private key restores the same identity and decrypts on another device", async () => {
+  const { ensureEncryptionKey, decryptText } = await import("../../frontend/src/lib/encryption.js");
+  let saved = null;
+  const axios = {
+    put: async (_url, body) => {
+      saved = body;
+      return { data: { encryptionPublicKey: body.encryptionPublicKey, encryptionKeyBackup: body.encryptionKeyBackup } };
+    },
+  };
+  const first = await ensureEncryptionKey({ _id: "wrap-user" }, axios, "password1");
+  assert.ok(saved?.encryptionKeyBackup?.ciphertext);
+  assert.equal(first.encryptionPublicKey.x, saved.encryptionPublicKey.x);
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-public"));
+  const ciphertext = await encryptText("hello both devices", { _id: "wrap-user", encryptionPublicKey: first.encryptionPublicKey }, { encryptionPublicKey: bobPub });
+  localStorage.removeItem("chat-e2e-private-wrap-user");
+  localStorage.removeItem("chat-e2e-private-wrap-user-public");
+  const putsAfter = [];
+  const axiosRestore = {
+    put: async (_url, body) => {
+      putsAfter.push(body);
+      return { data: body };
+    },
+  };
+  const second = await ensureEncryptionKey({
+    _id: "wrap-user",
+    encryptionPublicKey: saved.encryptionPublicKey,
+    encryptionKeyBackup: saved.encryptionKeyBackup,
+  }, axiosRestore, "password1");
+  assert.equal(putsAfter.length, 0);
+  assert.equal(second.encryptionPublicKey.x, first.encryptionPublicKey.x);
+  assert.equal(await decryptText(ciphertext, { _id: "wrap-user", encryptionPublicKey: second.encryptionPublicKey }, { encryptionPublicKey: bobPub }), "hello both devices");
+});

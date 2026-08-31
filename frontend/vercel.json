@@ -5,6 +5,14 @@
       "destination": "https://chat-app-backend-tjz8.onrender.com/api/:path*"
     },
     {
+      "source": "/socket.io",
+      "destination": "https://chat-app-backend-tjz8.onrender.com/socket.io"
+    },
+    {
+      "source": "/socket.io/",
+      "destination": "https://chat-app-backend-tjz8.onrender.com/socket.io/"
+    },
+    {
       "source": "/socket.io/:path*",
       "destination": "https://chat-app-backend-tjz8.onrender.com/socket.io/:path*"
     },

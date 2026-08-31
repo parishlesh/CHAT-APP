@@ -24,4 +24,23 @@ const generateToken = (userId, res) => {
   return token;
 };
 
+export const toSelfUser = (user) => {
+  const value = user?.toObject ? user.toObject() : user;
+  if (!value) return value;
+  return {
+    _id: value._id,
+    fullName: value.fullName,
+    username: value.username,
+    email: value.email,
+    phone: value.phone,
+    about: value.about,
+    profilePic: value.profilePic,
+    mood: value.mood,
+    moodUpdatedAt: value.moodUpdatedAt,
+    availability: value.availability,
+    encryptionPublicKey: value.encryptionPublicKey || null,
+    encryptionKeyBackup: value.encryptionKeyBackup || null,
+  };
+};
+
 export default generateToken;

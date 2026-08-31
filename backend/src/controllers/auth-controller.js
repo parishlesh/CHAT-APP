@@ -1,7 +1,27 @@
 import cloudinary from "../lib/cloudinary.js";
-import generateToken, { authCookieOptions } from "../lib/utils.js";
+import generateToken, { authCookieOptions, toSelfUser } from "../lib/utils.js";
 import User from "../models/user-model.js";
 import bcrypt from "bcryptjs";
+
+const publicKeyFingerprint = (jwk) => {
+    if (!jwk?.x || !jwk?.y) return "";
+    const normalize = (value) => String(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    return `${normalize(jwk.x)}.${normalize(jwk.y)}`;
+};
+
+const sanitizePublicKey = (jwk) => {
+    if (!jwk || typeof jwk !== "object" || jwk.d || jwk.privateKey) return null;
+    if (jwk.kty !== "EC" || !jwk.crv || typeof jwk.x !== "string" || typeof jwk.y !== "string") return null;
+    return { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y };
+};
+
+const sanitizeKeyBackup = (backup) => {
+    if (!backup || typeof backup !== "object" || backup.d || backup.privateKey) return null;
+    const { v, salt, iv, ciphertext } = backup;
+    if (v !== 1 || typeof salt !== "string" || typeof iv !== "string" || typeof ciphertext !== "string") return null;
+    if (!salt || !iv || !ciphertext) return null;
+    return { v: 1, salt, iv, ciphertext };
+};
 
 export const signup = async (req, res) => {
     try {
@@ -69,18 +89,7 @@ export const signup = async (req, res) => {
 
         generateToken(user._id, res);
 
-        res.status(201).json({
-            _id: user._id,
-            fullName: user.fullName,
-            username: user.username,
-            email: user.email,
-            phone: user.phone,
-            about: user.about,
-            profilePic: user.profilePic,
-            mood: user.mood,
-            moodUpdatedAt: user.moodUpdatedAt,
-            availability: user.availability,
-        });
+        res.status(201).json(toSelfUser(user));
     } catch (error) {
         console.log("Signup failed");
         if (error.code === 11000) {
@@ -127,18 +136,7 @@ export const login = async (req, res) => {
 
         generateToken(user._id, res);
 
-        res.status(200).json({
-            _id: user._id,
-            fullName: user.fullName,
-            username: user.username,
-            email: user.email,
-            phone: user.phone,
-            about: user.about,
-            profilePic: user.profilePic,
-            mood: user.mood,
-            moodUpdatedAt: user.moodUpdatedAt,
-            availability: user.availability,
-        });
+        res.status(200).json(toSelfUser(user));
     } catch (error) {
         console.log("Login failed");
 
@@ -221,7 +219,7 @@ export const updateProfile = async (req, res) => {
             }
         ).select("-password");
 
-        res.status(200).json(user);
+        res.status(200).json(toSelfUser(user));
     } catch (error) {
         console.log(error);
         if (error.code === 11000) return res.status(400).json({ message: "Username already taken" });
@@ -250,26 +248,38 @@ export const checkUsername = async (req, res) => {
 };
 
 export const checkAuth = (req, res) => {
-    res.status(200).json(req.user);
+    res.status(200).json(toSelfUser(req.user));
 };
 
 export const updateEncryptionKey = async (req, res) => {
     try {
-        const { encryptionPublicKey } = req.body;
-        if (!encryptionPublicKey?.kty || !encryptionPublicKey?.crv || !encryptionPublicKey?.x || !encryptionPublicKey?.y) {
+        const incomingPublic = sanitizePublicKey(req.body.encryptionPublicKey);
+        const incomingBackup = sanitizeKeyBackup(req.body.encryptionKeyBackup);
+        if (!incomingPublic && !incomingBackup) {
             return res.status(400).json({ message: "A valid public key is required." });
         }
-        const user = await User.findByIdAndUpdate(
-            req.user._id,
-            { encryptionPublicKey: {
-                kty: encryptionPublicKey.kty,
-                crv: encryptionPublicKey.crv,
-                x: encryptionPublicKey.x,
-                y: encryptionPublicKey.y,
-            } },
-            { new: true }
-        ).select("-password");
-        res.status(200).json(user);
+
+        const user = await User.findById(req.user._id).select("-password");
+        if (!user) return res.status(401).json({ message: "Unauthorized." });
+
+        const existingFp = publicKeyFingerprint(user.encryptionPublicKey);
+        const incomingFp = publicKeyFingerprint(incomingPublic);
+        if (existingFp && incomingFp && existingFp !== incomingFp) {
+            return res.status(409).json({
+                message: "Encryption identity already exists.",
+                ...toSelfUser(user),
+            });
+        }
+
+        const update = {};
+        if (!existingFp && incomingPublic) update.encryptionPublicKey = incomingPublic;
+        if (incomingBackup) update.encryptionKeyBackup = incomingBackup;
+        if (!Object.keys(update).length) {
+            return res.status(200).json(toSelfUser(user));
+        }
+
+        const saved = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select("-password");
+        res.status(200).json(toSelfUser(saved));
     } catch (error) {
         res.status(500).json({ message: "Internal Server Error" });
     }

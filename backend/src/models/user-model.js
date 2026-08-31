@@ -52,6 +52,8 @@ const userSchema = new mongoose.Schema(
 
     // Browser-generated ECDH P-256 public JWK. Private material never reaches this API.
     encryptionPublicKey: { type: mongoose.Schema.Types.Mixed, default: null },
+    // Client-wrapped private JWK (AES-GCM). Ciphertext only — never plaintext private keys.
+    encryptionKeyBackup: { type: mongoose.Schema.Types.Mixed, default: null },
 
     mood: {
       type: String,

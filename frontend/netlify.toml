@@ -5,6 +5,18 @@
   force = true
 
 [[redirects]]
+  from = "/socket.io"
+  to = "https://chat-app-backend-tjz8.onrender.com/socket.io"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/socket.io/"
+  to = "https://chat-app-backend-tjz8.onrender.com/socket.io/"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/socket.io/*"
   to = "https://chat-app-backend-tjz8.onrender.com/socket.io/:splat"
   status = 200

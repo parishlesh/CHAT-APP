@@ -35,6 +35,9 @@ export const useAuth = create((set, get) => ({
             const user = await ensureEncryptionKey(res.data, axiosInstance);
             set({ authUser: user })
             get().connectSocket()
+            import("./useChatStore").then(({ useChatStore }) => {
+              useChatStore.getState().retryPendingDecryption({ includeFailed: true });
+            });
 
         } catch (error) {
             set({ authUser: null })
@@ -48,7 +51,7 @@ export const useAuth = create((set, get) => ({
         set({ isSigningUp: true });
         try {
             const res = await axiosInstance.post("/auth/signup", data)
-            const user = await ensureEncryptionKey(res.data, axiosInstance);
+            const user = await ensureEncryptionKey(res.data, axiosInstance, data.password);
             await clearAccountStores();
             set({ authUser: user })
             toast.success("account created successfully")
@@ -83,7 +86,7 @@ export const useAuth = create((set, get) => ({
         set({ isLoggingIn: true });
         try {
             const res = await axiosInstance.post("/auth/login", data);
-            const user = await ensureEncryptionKey(res.data, axiosInstance);
+            const user = await ensureEncryptionKey(res.data, axiosInstance, data.password);
             await clearAccountStores();
             set({ authUser: user });
             toast.success("Logged in successfully");
@@ -103,8 +106,9 @@ export const useAuth = create((set, get) => ({
         })
         try {
             const res = await axiosInstance.put("/auth/update-profile", data)
+            const user = await ensureEncryptionKey(res.data, axiosInstance);
             set({
-                authUser: res.data
+                authUser: user
             })
             toast.success("profile updated successfully")
         } catch (error) {
@@ -118,10 +122,20 @@ export const useAuth = create((set, get) => ({
 
     connectSocket: () => {
         const { authUser } = get();
-        if (!authUser || get().socket) return;
+        if (!authUser) return;
+        const existing = get().socket;
+        if (existing?.connected) return;
+        if (existing) {
+          existing.removeAllListeners();
+          existing.disconnect();
+          set({ socket: null });
+        }
 
         const socket = io(BASE_URL, {
+          path: "/socket.io",
           withCredentials: true,
+          transports: ["polling", "websocket"],
+          upgrade: true,
           reconnection: true,
           reconnectionAttempts: Infinity,
           reconnectionDelay: 1000,
@@ -134,12 +148,22 @@ export const useAuth = create((set, get) => ({
           set({ onlineUsers: userIds });
         });
         socket.on("connect", () => {
+          if (import.meta.env.DEV) {
+            console.info("[socket]", { connected: true, id: socket.id, userId: String(authUser._id) });
+          }
           import("./useChatStore").then(({ useChatStore }) => {
             const chat = useChatStore.getState();
             chat.subscribeToMessages();
             chat.getChats();
             chat.getRequests();
+            if (chat.selectedUser?._id) chat.getMessages(chat.selectedUser._id);
           });
+        });
+        socket.on("disconnect", (reason) => {
+          if (import.meta.env.DEV) console.info("[socket]", { connected: false, reason });
+        });
+        socket.on("connect_error", (error) => {
+          if (import.meta.env.DEV) console.warn("[socket] connect_error", error?.message || "failed");
         });
 
         set({ socket });

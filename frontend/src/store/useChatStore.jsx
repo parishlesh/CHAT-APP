@@ -352,6 +352,9 @@ export const useChatStore = create((set, get) => ({
     const socket = useAuth.getState().socket;
     if (!socket) return;
     socket.off("newMessage").on("newMessage", async (message) => {
+      if (import.meta.env.DEV) {
+        console.info("[socket] newMessage", { id: String(message?._id || ""), conversationPeer: String(message?.senderId || "") });
+      }
       const me = useAuth.getState().authUser;
       const selected = get().selectedUser;
       if (hasMessage(get().messages, message._id)) return;
