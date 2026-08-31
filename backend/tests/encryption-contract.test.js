@@ -16,7 +16,14 @@ globalThis.sessionStorage = {
   removeItem: (key) => { store.delete(`s:${key}`); },
 };
 
-const { encryptText, decryptText } = await import("../../frontend/src/lib/encryption.js");
+const { encryptText, decryptText, clearSessionWrapPassword, hasStoredPrivateKey } = await import("../../frontend/src/lib/encryption.js");
+
+function forgetDevice(userId) {
+  clearSessionWrapPassword();
+  localStorage.removeItem(`chat-e2e-private-${userId}`);
+  localStorage.removeItem(`chat-e2e-private-${userId}-public`);
+  localStorage.removeItem(`chat-e2e-wrapped-${userId}`);
+}
 
 async function provision(user) {
   const { ensureEncryptionKey } = await import("../../frontend/src/lib/encryption.js");
@@ -59,17 +66,19 @@ test("ciphertext is never returned while the local identity is missing", async (
 });
 
 test("private jwk extra fields do not break decryption", async () => {
-  const { decryptMessage } = await import("../../frontend/src/lib/encryption.js");
+  const { decryptMessage, ensureEncryptionKey } = await import("../../frontend/src/lib/encryption.js");
   const alice = { _id: "alice-ops" };
   const bob = { _id: "bob-ops" };
   await provision(alice);
   await provision(bob);
-  const alicePrivName = "chat-e2e-private-alice-ops";
-  const priv = JSON.parse(localStorage.getItem(alicePrivName));
-  localStorage.setItem(alicePrivName, JSON.stringify({ ...priv, key_ops: ["deriveKey", "deriveBits"], alg: "ECDH", ext: true }));
-  const alicePub = JSON.parse(localStorage.getItem(`${alicePrivName}-public`));
+  const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-alice-ops-public"));
   const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-ops-public"));
-  const ciphertext = await encryptText("still works", { ...bob, encryptionPublicKey: JSON.parse(localStorage.getItem("chat-e2e-private-bob-ops-public")) }, { encryptionPublicKey: alicePub });
+  const wrapped = localStorage.getItem("chat-e2e-wrapped-alice-ops");
+  forgetDevice("alice-ops");
+  localStorage.setItem("chat-e2e-wrapped-alice-ops", wrapped);
+  localStorage.setItem("chat-e2e-private-alice-ops-public", JSON.stringify({ ...alicePub, key_ops: ["deriveKey", "deriveBits"], alg: "ECDH", ext: true }));
+  await ensureEncryptionKey({ ...alice, encryptionPublicKey: alicePub }, { put: async (_url, body) => ({ data: body }) }, "test-password");
+  const ciphertext = await encryptText("still works", { ...bob, encryptionPublicKey: bobPub }, { encryptionPublicKey: alicePub });
   const result = await decryptMessage(ciphertext, alice, { encryptionPublicKey: bobPub });
   assert.equal(result.status, "decrypted");
   assert.equal(result.text, "still works");
@@ -91,17 +100,18 @@ test("own public key is not treated as a usable peer key", async () => {
 test("a second device does not generate or upload a replacement identity", async () => {
   const { ensureEncryptionKey } = await import("../../frontend/src/lib/encryption.js");
   const serverPub = JSON.parse(localStorage.getItem("chat-e2e-private-alice-public"));
+  forgetDevice("device-b-user");
   const puts = [];
   const axios = { put: async (_url, body) => { puts.push(body); return { data: body }; } };
   const result = await ensureEncryptionKey({ _id: "device-b-user", encryptionPublicKey: serverPub }, axios, "password1");
   assert.equal(puts.length, 0);
-  assert.equal(localStorage.getItem("chat-e2e-private-device-b-user"), null);
+  assert.equal(hasStoredPrivateKey("device-b-user"), false);
   assert.equal(result.encryptionPublicKey.x, serverPub.x);
   assert.equal("encryptionKeyBackup" in result, false);
 });
 
 test("wrapped private key restores the same identity and decrypts on another device", async () => {
-  const { ensureEncryptionKey, decryptText } = await import("../../frontend/src/lib/encryption.js");
+  const { ensureEncryptionKey, decryptText, isEncryptionReady } = await import("../../frontend/src/lib/encryption.js");
   let saved = null;
   const axios = {
     put: async (_url, body) => {
@@ -114,8 +124,7 @@ test("wrapped private key restores the same identity and decrypts on another dev
   assert.equal(first.encryptionPublicKey.x, saved.encryptionPublicKey.x);
   const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-public"));
   const ciphertext = await encryptText("hello both devices", { _id: "wrap-user", encryptionPublicKey: first.encryptionPublicKey }, { encryptionPublicKey: bobPub });
-  localStorage.removeItem("chat-e2e-private-wrap-user");
-  localStorage.removeItem("chat-e2e-private-wrap-user-public");
+  forgetDevice("wrap-user");
   const putsAfter = [];
   const axiosRestore = {
     put: async (_url, body) => {
@@ -130,6 +139,7 @@ test("wrapped private key restores the same identity and decrypts on another dev
   }, axiosRestore, "password1");
   assert.equal(putsAfter.length, 0);
   assert.equal(second.encryptionPublicKey.x, first.encryptionPublicKey.x);
+  assert.equal(isEncryptionReady(), true);
   assert.equal(await decryptText(ciphertext, { _id: "wrap-user", encryptionPublicKey: second.encryptionPublicKey }, { encryptionPublicKey: bobPub }), "hello both devices");
 });
 
@@ -153,8 +163,7 @@ test("recipient decrypts when the sender device private key does not match the p
   await provision(bob);
   const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-alice-phone-public"));
   const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-laptop-public"));
-  localStorage.removeItem("chat-e2e-private-alice-phone");
-  localStorage.removeItem("chat-e2e-private-alice-phone-public");
+  forgetDevice("alice-phone");
   await ensureEncryptionKey({ _id: "alice-phone" }, { put: async (_url, body) => ({ data: body }) }, "other-device");
   const rotated = JSON.parse(localStorage.getItem("chat-e2e-private-alice-phone-public"));
   assert.notEqual(rotated.x, alicePub.x);
@@ -191,14 +200,13 @@ test("login with matching local key uploads a wrapped backup automatically", asy
   assert.equal(isEncryptionReady(), true);
 });
 
-test("a mismatched local key is ignored and does not replace the published identity", async () => {
+test("a mismatched local key is cleared and does not replace the published identity", async () => {
   const { ensureEncryptionKey, isEncryptionReady } = await import("../../frontend/src/lib/encryption.js");
   await provision({ _id: "stable-user" });
   const published = JSON.parse(localStorage.getItem("chat-e2e-private-stable-user-public"));
-  localStorage.removeItem("chat-e2e-private-stable-user");
-  localStorage.removeItem("chat-e2e-private-stable-user-public");
   await provision({ _id: "intruder-keys" });
-  localStorage.setItem("chat-e2e-private-stable-user", localStorage.getItem("chat-e2e-private-intruder-keys"));
+  forgetDevice("stable-user");
+  localStorage.setItem("chat-e2e-wrapped-stable-user", localStorage.getItem("chat-e2e-wrapped-intruder-keys"));
   localStorage.setItem("chat-e2e-private-stable-user-public", localStorage.getItem("chat-e2e-private-intruder-keys-public"));
   const puts = [];
   const result = await ensureEncryptionKey({ _id: "stable-user", encryptionPublicKey: published }, {
@@ -210,5 +218,113 @@ test("a mismatched local key is ignored and does not replace the published ident
   assert.equal(puts.length, 0);
   assert.equal(result.encryptionPublicKey.x, published.x);
   assert.equal(isEncryptionReady(), false);
-  assert.ok(localStorage.getItem("chat-e2e-private-stable-user"));
+  assert.equal(hasStoredPrivateKey("stable-user"), false);
+});
+
+test("plaintext private jwk is not stored in localStorage", async () => {
+  await provision({ _id: "sealed-user" });
+  assert.equal(localStorage.getItem("chat-e2e-private-sealed-user"), null);
+  assert.ok(localStorage.getItem("chat-e2e-wrapped-sealed-user"));
+  assert.equal(String(localStorage.getItem("chat-e2e-wrapped-sealed-user")).includes('"d":'), false);
+});
+
+test("a 409 identity conflict restores the canonical backup instead of keeping a generated key", async () => {
+  const { ensureEncryptionKey, decryptText, isEncryptionReady } = await import("../../frontend/src/lib/encryption.js");
+  let saved = null;
+  await ensureEncryptionKey({ _id: "race-user" }, {
+    put: async (_url, body) => {
+      saved = body;
+      return { data: body };
+    },
+  }, "password1");
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-public"));
+  const ciphertext = await encryptText("race safe", { _id: "race-user", encryptionPublicKey: saved.encryptionPublicKey }, { encryptionPublicKey: bobPub });
+  forgetDevice("race-user");
+  const result = await ensureEncryptionKey({ _id: "race-user" }, {
+    put: async () => {
+      const error = new Error("conflict");
+      error.response = {
+        status: 409,
+        data: {
+          encryptionPublicKey: saved.encryptionPublicKey,
+          encryptionKeyBackup: saved.encryptionKeyBackup,
+        },
+      };
+      throw error;
+    },
+  }, "password1");
+  assert.equal(result.encryptionPublicKey.x, saved.encryptionPublicKey.x);
+  assert.equal(isEncryptionReady(), true);
+  assert.equal(await decryptText(ciphertext, { _id: "race-user", encryptionPublicKey: result.encryptionPublicKey }, { encryptionPublicKey: bobPub }), "race safe");
+});
+
+test("legacy plaintext private keys migrate into wrapped local storage", async () => {
+  const { ensureEncryptionKey, decryptText } = await import("../../frontend/src/lib/encryption.js");
+  const alice = { _id: "legacy-alice" };
+  const bob = { _id: "legacy-bob" };
+  await provision(alice);
+  await provision(bob);
+  const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-legacy-alice-public"));
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-legacy-bob-public"));
+  const wrapped = JSON.parse(localStorage.getItem("chat-e2e-wrapped-legacy-alice"));
+  forgetDevice("legacy-alice");
+  const iv = Uint8Array.from(atob(wrapped.iv), (char) => char.charCodeAt(0));
+  const ciphertextBytes = Uint8Array.from(atob(wrapped.ciphertext), (char) => char.charCodeAt(0));
+  const deviceRaw = Uint8Array.from(atob(localStorage.getItem("chat-e2e-device-wrap")), (char) => char.charCodeAt(0));
+  const wrappingKey = await crypto.subtle.importKey("raw", deviceRaw, { name: "AES-GCM" }, false, ["decrypt"]);
+  const bytes = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, wrappingKey, ciphertextBytes);
+  const privateJwk = JSON.parse(new TextDecoder().decode(bytes));
+  localStorage.setItem("chat-e2e-private-legacy-alice", JSON.stringify({ ...privateJwk, key_ops: ["deriveBits"], alg: "ECDH" }));
+  localStorage.setItem("chat-e2e-private-legacy-alice-public", JSON.stringify(alicePub));
+  await ensureEncryptionKey({ ...alice, encryptionPublicKey: alicePub }, { put: async (_url, body) => ({ data: body }) }, "test-password");
+  assert.equal(localStorage.getItem("chat-e2e-private-legacy-alice"), null);
+  assert.ok(localStorage.getItem("chat-e2e-wrapped-legacy-alice"));
+  const ciphertext = await encryptText("migrated", { ...bob, encryptionPublicKey: bobPub }, { encryptionPublicKey: alicePub });
+  assert.equal(await decryptText(ciphertext, { ...alice, encryptionPublicKey: alicePub }, { encryptionPublicKey: bobPub }), "migrated");
+});
+
+test("decrypt waits for initialization instead of failing early", async () => {
+  const { decryptMessage, ensureEncryptionKey, resetEncryptionStatus } = await import("../../frontend/src/lib/encryption.js");
+  const alice = { _id: "wait-alice" };
+  const bob = { _id: "wait-bob" };
+  await provision(alice);
+  await provision(bob);
+  const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-wait-alice-public"));
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-wait-bob-public"));
+  const ciphertext = await encryptText("after init", { ...alice, encryptionPublicKey: alicePub }, { encryptionPublicKey: bobPub });
+  resetEncryptionStatus();
+  const pending = decryptMessage(ciphertext, { ...bob, encryptionPublicKey: bobPub }, { encryptionPublicKey: alicePub });
+  await ensureEncryptionKey({ ...bob, encryptionPublicKey: bobPub }, { put: async (_url, body) => ({ data: body }) }, "test-password");
+  const result = await pending;
+  assert.equal(result.status, "decrypted");
+  assert.equal(result.text, "after init");
+});
+
+test("same device restores from wrapped local storage after logout without uploading a new identity", async () => {
+  const { ensureEncryptionKey, decryptText, isEncryptionReady } = await import("../../frontend/src/lib/encryption.js");
+  let saved = null;
+  await ensureEncryptionKey({ _id: "same-device" }, {
+    put: async (_url, body) => {
+      saved = body;
+      return { data: body };
+    },
+  }, "password1");
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-public"));
+  const ciphertext = await encryptText("still here", { _id: "same-device", encryptionPublicKey: saved.encryptionPublicKey }, { encryptionPublicKey: bobPub });
+  clearSessionWrapPassword();
+  const puts = [];
+  const second = await ensureEncryptionKey({
+    _id: "same-device",
+    encryptionPublicKey: saved.encryptionPublicKey,
+    encryptionKeyBackup: saved.encryptionKeyBackup,
+  }, {
+    put: async (_url, body) => {
+      puts.push(body);
+      return { data: body };
+    },
+  }, "password1");
+  assert.equal(puts.length, 0);
+  assert.equal(isEncryptionReady(), true);
+  assert.equal(second.encryptionPublicKey.x, saved.encryptionPublicKey.x);
+  assert.equal(await decryptText(ciphertext, { _id: "same-device", encryptionPublicKey: second.encryptionPublicKey }, { encryptionPublicKey: bobPub }), "still here");
 });

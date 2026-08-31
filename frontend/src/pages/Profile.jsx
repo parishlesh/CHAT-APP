@@ -69,7 +69,7 @@ const Profile = () => {
       <div className="py-8 space-y-6 flex flex-col items-center justify-center w-full  bg-base-100 ">
         <div className="relative  inline-flex flex-col w-64  mx-auto">
           <img
-            src={selectedImg || authUser.profilePic || "/avatar.png"}
+            src={selectedImg || authUser.profilePic || "/avatar.svg"}
             alt="Profile"
             className="w-64 h-64 rounded-full object-cover border-4 border-white shadow-md"
           />

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useAuth } from "../store/useAuth.jsx";
 import { Link } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
+import BrandMark from "../components/BrandMark";
+import AuthImagePattern from "../components/AuthImagePattern";
 
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -16,70 +18,69 @@ const Login = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e)=>{
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    await login(formData)
-  }
+    await login(formData);
+  };
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-gray-100">
-      <div className="bg-white shadow-lg rounded-lg p-6 w-full max-w-md">
-        <h2 className="text-2xl font-semibold text-center text-gray-700 mb-4">Login</h2>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-600">Email or username</label>
-            <input
-              type="text"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="w-full mt-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-400 outline-none"
-              placeholder="Enter your email or username"
-              required
-            />
+    <div className="grid min-h-screen lg:grid-cols-2">
+      <div className="flex items-center justify-center bg-base-200 p-6">
+        <div className="card w-full max-w-md bg-base-100 shadow-xl">
+          <div className="card-body">
+            <BrandMark size={36} className="mb-1 justify-center text-xl" />
+            <h1 className="text-center text-2xl font-semibold">Welcome back</h1>
+            <p className="mb-2 text-center text-sm text-base-content/60">Sign in to continue your conversations</p>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium">Email or username</label>
+                <input
+                  type="text"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  className="input input-bordered mt-1 w-full"
+                  placeholder="Enter your email or username"
+                  required
+                />
+              </div>
+              <div className="relative">
+                <label className="block text-sm font-medium">Password</label>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="input input-bordered mt-1 w-full pr-10"
+                  placeholder="Enter your password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-9 text-base-content/50"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+              <button type="submit" className="btn btn-primary w-full ui-press" disabled={isLoggingIn}>
+                {isLoggingIn ? "Logging in..." : "Login"}
+              </button>
+            </form>
+            <p className="mt-4 text-center text-sm text-base-content/60">
+              Don&apos;t have an account?{" "}
+              <Link to="/signup" className="link link-primary">
+                Sign up
+              </Link>
+            </p>
           </div>
-
-          {/* Password Input */}
-          <div className="relative">
-            <label className="block text-sm font-medium text-gray-600">Password</label>
-            <input
-              type={showPassword ? "text" : "password"}
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              className="w-full mt-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-400 outline-none"
-              placeholder="Enter your password"
-              required
-            />
-            {/* Show/Hide Password Button */}
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-9 text-gray-500"
-            >
-              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-            </button>
-          </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            className="w-full bg-blue-500 text-white py-2 rounded-md hover:bg-blue-600 transition disabled:bg-gray-400"
-            disabled={isLoggingIn}
-          >
-            {isLoggingIn ? "Logging in..." : "Login"}
-          </button>
-        </form>
-
-        {/* Sign Up Link */}
-        <p className="text-center text-sm text-gray-600 mt-4">
-          Don&apos;t have an account?{" "}
-          <Link to="/signup" className="text-blue-500 hover:underline">
-            Sign up
-          </Link>
-        </p>
+        </div>
       </div>
+      <AuthImagePattern
+        title="Stay in the conversation"
+        subtitle="VibeLink keeps your messages encrypted across every device you sign in on — same identity, same chat."
+      />
     </div>
   );
 };

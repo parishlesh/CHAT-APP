@@ -251,6 +251,23 @@ export const checkAuth = (req, res) => {
     res.status(200).json(toSelfUser(req.user));
 };
 
+export const planEncryptionKeyUpdate = (user, incomingPublic, incomingBackup) => {
+    const existingFp = publicKeyFingerprint(user?.encryptionPublicKey);
+    const incomingFp = publicKeyFingerprint(incomingPublic);
+    if (existingFp && incomingFp && existingFp !== incomingFp) {
+        return { action: "conflict" };
+    }
+    const update = {};
+    if (!existingFp && incomingPublic) update.encryptionPublicKey = incomingPublic;
+    if (incomingBackup && !user?.encryptionKeyBackup) update.encryptionKeyBackup = incomingBackup;
+    if (!Object.keys(update).length) return { action: "noop" };
+    return {
+        action: "update",
+        update,
+        requireEmptyPublic: Boolean(update.encryptionPublicKey),
+    };
+};
+
 export const updateEncryptionKey = async (req, res) => {
     try {
         const incomingPublic = sanitizePublicKey(req.body.encryptionPublicKey);
@@ -262,23 +279,33 @@ export const updateEncryptionKey = async (req, res) => {
         const user = await User.findById(req.user._id).select("-password");
         if (!user) return res.status(401).json({ message: "Unauthorized." });
 
-        const existingFp = publicKeyFingerprint(user.encryptionPublicKey);
-        const incomingFp = publicKeyFingerprint(incomingPublic);
-        if (existingFp && incomingFp && existingFp !== incomingFp) {
+        const plan = planEncryptionKeyUpdate(user, incomingPublic, incomingBackup);
+        if (plan.action === "conflict") {
             return res.status(409).json({
                 message: "Encryption identity already exists.",
                 ...toSelfUser(user),
             });
         }
-
-        const update = {};
-        if (!existingFp && incomingPublic) update.encryptionPublicKey = incomingPublic;
-        if (incomingBackup && !user.encryptionKeyBackup) update.encryptionKeyBackup = incomingBackup;
-        if (!Object.keys(update).length) {
+        if (plan.action === "noop") {
             return res.status(200).json(toSelfUser(user));
         }
 
-        const saved = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select("-password");
+        const filter = { _id: req.user._id };
+        if (plan.requireEmptyPublic) {
+            filter.$or = [
+                { encryptionPublicKey: null },
+                { encryptionPublicKey: { $exists: false } },
+            ];
+        }
+
+        const saved = await User.findOneAndUpdate(filter, { $set: plan.update }, { new: true }).select("-password");
+        if (!saved) {
+            const current = await User.findById(req.user._id).select("-password");
+            return res.status(409).json({
+                message: "Encryption identity already exists.",
+                ...toSelfUser(current),
+            });
+        }
         res.status(200).json(toSelfUser(saved));
     } catch (error) {
         res.status(500).json({ message: "Internal Server Error" });

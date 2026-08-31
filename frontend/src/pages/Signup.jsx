@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, SkipForward } from "lucide-react";
 import { useAuth } from "../store/useAuth";
 import { axiosInstance } from "../lib/axios";
+import BrandMark from "../components/BrandMark";
 
 const steps = [
   { key: "fullName", label: "What's your name?", type: "text", placeholder: "Full name" },
@@ -60,8 +61,9 @@ const Signup = () => {
     reader.readAsDataURL(file);
   };
 
-  return <div className="min-h-screen flex items-center justify-center bg-base-200 p-4">
+  return <div className="flex min-h-screen items-center justify-center bg-base-200 p-4">
     <div className="card w-full max-w-md bg-base-100 shadow-xl"><div className="card-body">
+      <BrandMark size={32} className="mb-1 text-lg" />
       <p className="text-sm text-base-content/60">Step {step + 1} of {steps.length}</p>
       <progress className="progress progress-primary w-full" value={step + 1} max={steps.length} />
       <h1 className="card-title text-2xl mt-3">{current.label}</h1>

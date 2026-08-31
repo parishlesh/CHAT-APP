@@ -1,7 +1,7 @@
 import toast from "react-hot-toast";
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
-import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKey, toPublicJwk } from "../lib/encryption";
+import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKey, toPublicJwk, waitForEncryptionInit } from "../lib/encryption";
 import { notifyIncomingMessage } from "../lib/notify";
 import { getVibeMeta } from "../config/conversationVibes";
 import { useAuth } from "./useAuth";
@@ -18,6 +18,7 @@ const conversationIdForUser = (state, userId) => {
 const hasMessage = (messages, id) => messages.some((message) => idsEqual(message._id, id));
 
 const hydrate = async (message, peer) => {
+  await waitForEncryptionInit();
   const me = useAuth.getState().authUser;
   if (message.kind === "system" || message.systemEvent) {
     return {
@@ -163,6 +164,7 @@ export const useChatStore = create((set, get) => ({
       const page = parseMessagePage(data);
       const stubs = page.messages.map(asPendingMessage);
       set({ messages: stubs, hasMore: page.hasMore, isMessageLoading: false });
+      await waitForEncryptionInit();
       const peer = get().selectedUser;
       const hydrated = await Promise.all(stubs.map((message) => hydrate(message, peer)));
       if (get().loadToken !== token || get().selectedUser?._id !== userId) return;

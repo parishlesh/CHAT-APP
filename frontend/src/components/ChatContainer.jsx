@@ -149,7 +149,7 @@ const ChatContainer = () => {
                 })
               ) : (
                 <p className="pb-16 text-center text-sm text-base-content/50">
-                  Start a conversation with {selectedUser?.fullName}
+                  No messages yet. Say hello and set the vibe with {selectedUser?.fullName}.
                 </p>
               )}
               <div ref={endRef} />

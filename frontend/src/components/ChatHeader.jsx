@@ -52,7 +52,7 @@ const ChatHeader = () => {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <img
-          src={selectedUser.profilePic || "/avatar.png"}
+          src={selectedUser.profilePic || "/avatar.svg"}
           alt={selectedUser.fullName}
           className="h-9 w-9 shrink-0 rounded-full object-cover"
         />

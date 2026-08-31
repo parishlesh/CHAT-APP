@@ -36,7 +36,7 @@ const Sidebar = () => {
       <div className="shrink-0 border-b border-base-300 px-3 pb-3 pt-3">
         <div className="mb-3 flex items-center justify-between md:hidden">
           <div className="flex min-w-0 items-center gap-2">
-            <img src={authUser?.profilePic || "/avatar.png"} alt="" className="h-8 w-8 rounded-full object-cover" />
+            <img src={authUser?.profilePic || "/avatar.svg"} alt="" className="h-8 w-8 rounded-full object-cover" />
             <span className="truncate font-semibold">{authUser?.fullName}</span>
           </div>
           <div className="flex items-center">
@@ -87,7 +87,7 @@ const Sidebar = () => {
               <div className="flex items-center gap-2 px-3 py-2.5">
                 <button type="button" onClick={() => setSelectedUser(user)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                   <div className="relative shrink-0">
-                    <img src={user.profilePic || "/avatar.png"} alt="" className="h-11 w-11 rounded-full object-cover" />
+                    <img src={user.profilePic || "/avatar.svg"} alt="" className="h-11 w-11 rounded-full object-cover" />
                     {onlineUsers.includes(user._id) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-base-100" />}
                   </div>
                   <span className="min-w-0 flex-1">
@@ -114,7 +114,7 @@ const Sidebar = () => {
       </ul>
       {!rows.length && (
         <p className="px-4 py-8 text-center text-sm text-base-content/50">
-          {query ? "No people found" : activeTab === "requests" ? "No pending requests" : "No chats yet"}
+          {query ? "No people found" : activeTab === "requests" ? "No pending requests" : "Start a VibeLink chat from search"}
         </p>
       )}
     </aside>

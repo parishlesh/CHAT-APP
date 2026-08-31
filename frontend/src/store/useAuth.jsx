@@ -58,7 +58,7 @@ export const useAuth = create((set, get) => ({
             const user = await ensureEncryptionKey(res.data, axiosInstance, data.password);
             await clearAccountStores();
             set({ authUser: user, encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized() })
-            toast.success("account created successfully")
+            toast.success("Account created")
             get().connectSocket()
 
         } catch (error) {

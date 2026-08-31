@@ -10,11 +10,10 @@ import { useEffect } from 'react'
 import { Loader } from 'lucide-react'
 import { Toaster } from 'react-hot-toast'
 import { useThemeStore } from './store/useThemeStore'
-
+import BrandMark from './components/BrandMark'
 
 const App = () => {
-  const {authUser, checkAuth, isCheckingAuth} =useAuth()
-
+  const { authUser, checkAuth, isCheckingAuth } = useAuth();
   const { appliedAppTheme } = useThemeStore();
 
   useEffect(() => {
@@ -25,32 +24,34 @@ const App = () => {
     document.documentElement.setAttribute("data-theme", appliedAppTheme);
   }, [appliedAppTheme]);
 
-  
-  if (isCheckingAuth && !authUser)
+  if (isCheckingAuth && !authUser) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader className="size-10 animate-spin" />
+      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-base-200">
+        <BrandMark size={44} className="text-2xl" />
+        <Loader className="size-8 animate-spin text-primary" />
+        <p className="text-sm text-base-content/60">Restoring your secure session…</p>
       </div>
     );
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden" data-theme={appliedAppTheme}>
-    {authUser && <Navbar />}
-    <div
-      className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto"}`}
-      data-theme={appliedAppTheme}
-    >
-      <Routes>
-        <Route path="/" element={authUser ? <Home /> : <Navigate to="/login" />} />
-        <Route path="/signup" element={!authUser ? <Signup /> : <Navigate to="/" />} />
-        <Route path="/login" element={!authUser ? <Login /> : <Navigate to="/" />} />
-        <Route path="/settings" element={authUser ? <Settings /> : <Navigate to="/login" />} />
-        <Route path="/profile" element={authUser ? <Profile /> : <Navigate to="/login" />} />
-      </Routes>
+      {authUser && <Navbar />}
+      <div
+        className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto"}`}
+        data-theme={appliedAppTheme}
+      >
+        <Routes>
+          <Route path="/" element={authUser ? <Home /> : <Navigate to="/login" />} />
+          <Route path="/signup" element={!authUser ? <Signup /> : <Navigate to="/" />} />
+          <Route path="/login" element={!authUser ? <Login /> : <Navigate to="/" />} />
+          <Route path="/settings" element={authUser ? <Settings /> : <Navigate to="/login" />} />
+          <Route path="/profile" element={authUser ? <Profile /> : <Navigate to="/login" />} />
+        </Routes>
+      </div>
+      <Toaster />
     </div>
-    <Toaster />
-  </div>
-  )
-}
+  );
+};
 
-export default App
+export default App;

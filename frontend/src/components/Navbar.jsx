@@ -2,6 +2,7 @@ import { useAuth } from "../store/useAuth";
 import { Link, useLocation } from "react-router-dom";
 import { LogOut, MessageSquare, User, Settings } from "lucide-react";
 import { useThemeStore } from "../store/useThemeStore";
+import BrandMark from "./BrandMark";
 
 const Navbar = () => {
   const { isLogout, authUser } = useAuth();
@@ -19,6 +20,9 @@ const Navbar = () => {
       aria-label="Main"
     >
       <div className="flex flex-col items-center gap-3">
+        <Link to="/" className="ui-press rounded-lg p-1" aria-label="VibeLink messages">
+          <BrandMark size={32} showWordmark={false} />
+        </Link>
         <Link to="/" className={itemClass("/")} aria-label="Messages">
           <MessageSquare size={22} />
         </Link>
