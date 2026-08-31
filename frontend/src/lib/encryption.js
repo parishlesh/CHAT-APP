@@ -66,12 +66,25 @@ export async function encryptText(text, me, recipient) {
   return `${prefix}${toBase64(iv)}.${toBase64(encrypted)}`;
 }
 
-export async function decryptText(text, me, peer) {
-  if (!text?.startsWith(prefix) || !peer?.encryptionPublicKey || !window.crypto?.subtle) return text || "";
+export const ENCRYPTED_PREFIX = prefix;
+export const isEncryptedText = (text) => typeof text === "string" && text.startsWith(prefix);
+
+export async function decryptMessage(text, me, peer) {
+  if (!text) return { status: "decrypted", text: "" };
+  if (!isEncryptedText(text)) return { status: "decrypted", text };
+  if (!window.crypto?.subtle || !me?._id) return { status: "failed", text: "Unable to decrypt this message" };
+  if (!toPublicJwk(peer?.encryptionPublicKey)) return { status: "pending", text: "" };
   try {
     const [iv, ciphertext] = text.slice(prefix.length).split(".");
     const key = await sharedAesKey(me._id, peer.encryptionPublicKey);
     const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(iv) }, key, fromBase64(ciphertext));
-    return decoder.decode(decrypted);
-  } catch { return "Unable to decrypt this message"; }
+    return { status: "decrypted", text: decoder.decode(decrypted) };
+  } catch {
+    return { status: "failed", text: "Unable to decrypt this message" };
+  }
+}
+
+export async function decryptText(text, me, peer) {
+  const result = await decryptMessage(text, me, peer);
+  return result.status === "pending" ? "" : result.text;
 }

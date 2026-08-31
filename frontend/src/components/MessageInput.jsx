@@ -3,6 +3,7 @@ import { useChatStore } from "../store/useChatStore";
 import { Image as ImageIcon, Send, Timer, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../store/useAuth";
+import { isEncryptedText } from "../lib/encryption";
 
 const MessageInput = () => {
   const [text, setText] = useState("");
@@ -44,6 +45,10 @@ const MessageInput = () => {
 
   useEffect(() => {
     if (editingMessage) {
+      if (editingMessage.decryptStatus === "pending" || editingMessage.decryptStatus === "failed") {
+        setEditingMessage(null);
+        return;
+      }
       setText(editingMessage.displayText || "");
       setSelectedImages([]);
       setPreviewUrls((prev) => {
@@ -53,7 +58,7 @@ const MessageInput = () => {
       requestAnimationFrame(resizeField);
       textareaRef.current?.focus();
     }
-  }, [editingMessage]);
+  }, [editingMessage, setEditingMessage]);
 
   useEffect(() => { resizeField(); }, [text]);
 
@@ -170,7 +175,13 @@ const MessageInput = () => {
         <div className="mb-2 flex items-start justify-between gap-2 rounded-md border-l-2 border-primary bg-base-200 px-3 py-1.5 text-xs">
           <div className="min-w-0">
             <p className="font-medium">Replying to {replyingTo.senderId === authUser?._id ? "yourself" : selectedUser?.fullName}</p>
-            <p className="truncate opacity-70">{replyingTo.displayText || (replyingTo.image ? "Photo" : "")}</p>
+            <p className="truncate opacity-70">
+              {replyingTo.decryptStatus === "pending" || isEncryptedText(replyingTo.displayText)
+                ? "Please wait while we are fetching your chat…"
+                : replyingTo.decryptStatus === "failed"
+                  ? "Unable to decrypt this message"
+                  : (replyingTo.displayText || (replyingTo.image ? "Photo" : ""))}
+            </p>
           </div>
           <button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancel reply"><X size={16} /></button>
         </div>

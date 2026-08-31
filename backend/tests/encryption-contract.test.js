@@ -38,3 +38,18 @@ test("peer can decrypt text encrypted with their public key", async () => {
   assert.equal(await decryptText(ciphertext, bob, { encryptionPublicKey: messyAlice }), "hello user 2");
   assert.equal(await decryptText(ciphertext, alice, { encryptionPublicKey: messyBob }), "hello user 2");
 });
+
+test("ciphertext is never returned while the peer key is missing", async () => {
+  const { decryptMessage, isEncryptedText } = await import("../../frontend/src/lib/encryption.js");
+  const alice = { _id: "alice" };
+  const bob = { _id: "bob" };
+  await provision(alice);
+  await provision(bob);
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-public"));
+  const ciphertext = await encryptText("secret", alice, { encryptionPublicKey: bobPub });
+  assert.equal(isEncryptedText(ciphertext), true);
+  const pending = await decryptMessage(ciphertext, alice, {});
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.text, "");
+  assert.equal(await decryptText(ciphertext, alice, {}), "");
+});

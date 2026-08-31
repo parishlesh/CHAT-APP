@@ -11,7 +11,7 @@ import { formatAvailability } from "../config/conversationExtras";
 const Sidebar = () => {
   const { chatList, requests, searchResults, activeTab, setActiveTab, selectedUser, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages } = useChatStore();
   const { onlineUsers, authUser, isLogout } = useAuth();
-  const { theme } = useThemeStore();
+  const { appliedAppTheme } = useThemeStore();
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -32,7 +32,7 @@ const Sidebar = () => {
       : requests.map((request) => ({ user: request.user, request }));
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col border-r border-base-300 bg-base-100" data-theme={theme}>
+    <aside className="flex h-full min-h-0 w-full flex-col border-r border-base-300 bg-base-100" data-theme={appliedAppTheme}>
       <div className="shrink-0 border-b border-base-300 px-3 pb-3 pt-3">
         <div className="mb-3 flex items-center justify-between md:hidden">
           <div className="flex min-w-0 items-center gap-2">

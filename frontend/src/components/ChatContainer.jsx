@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useConversationThemeStore } from "../store/useConversationThemeStore";
 import { useAuth } from "../store/useAuth";
-import { useThemeStore } from "../store/useThemeStore";
 import { themeForMood } from "../lib/moods";
 import ChatHeader from "./ChatHeader";
 import MoodBanner from "./MoodBanner";
@@ -21,11 +20,11 @@ const ChatContainer = () => {
     messages, getMessages, loadOlderMessages, isMessageLoading, isLoadingOlder, selectedUser, pruneExpired,
     messageSearch, messageMatchIds, searchMessages, messageSearchOpen, setMessageSearchOpen, goToMatch, matchIndex,
     getConversationDetails, appearance, conversationLocked, rituals, upsertRitual, patchConversationMeta,
+    retryPendingDecryption,
   } = useChatStore();
   const { getConversationMood, clearConversationMood } = useConversationThemeStore();
   const { authUser } = useAuth();
-  const { theme } = useThemeStore();
-  const personalTheme = themeForMood(authUser?.mood, theme);
+  const conversationTheme = themeForMood(authUser?.mood);
   const endRef = useRef(null);
   const scrollerRef = useRef(null);
   const stickToBottom = useRef(true);
@@ -46,6 +45,10 @@ const ChatContainer = () => {
       clearConversationMood();
     };
   }, [selectedUser?._id, getMessages, getConversationMood, clearConversationMood, getConversationDetails]);
+
+  useEffect(() => {
+    if (selectedUser?.encryptionPublicKey) retryPendingDecryption();
+  }, [selectedUser?.encryptionPublicKey, retryPendingDecryption]);
 
   useEffect(() => {
     const timer = setInterval(pruneExpired, 30000);
@@ -83,7 +86,7 @@ const ChatContainer = () => {
   const dueMeta = findMeta(RITUALS, dueRitual?.key);
 
   return (
-    <div className="ui-chat-enter relative flex h-full min-h-0 w-full flex-col bg-base-100" data-theme={personalTheme}>
+    <div className="ui-chat-enter relative flex h-full min-h-0 w-full flex-col bg-base-100" data-theme={conversationTheme}>
       <ChatHeader />
       <VibePicker />
       <VibePrompt />

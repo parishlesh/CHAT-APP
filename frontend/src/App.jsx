@@ -10,21 +10,20 @@ import { useEffect } from 'react'
 import { Loader } from 'lucide-react'
 import { Toaster } from 'react-hot-toast'
 import { useThemeStore } from './store/useThemeStore'
-import { themeForMood } from './lib/moods'
 
 
 const App = () => {
   const {authUser, checkAuth, isCheckingAuth} =useAuth()
 
-  const {theme}=  useThemeStore() 
+  const { appliedAppTheme } = useThemeStore();
 
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+    document.documentElement.setAttribute("data-theme", appliedAppTheme);
+  }, [appliedAppTheme]);
 
   
   if (isCheckingAuth && !authUser)
@@ -35,11 +34,11 @@ const App = () => {
     );
 
   return (
-    <div className="flex h-screen w-full overflow-hidden" data-theme={theme}>
+    <div className="flex h-screen w-full overflow-hidden" data-theme={appliedAppTheme}>
     {authUser && <Navbar />}
     <div
       className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto"}`}
-      data-theme={authUser ? themeForMood(authUser.mood, theme) : theme}
+      data-theme={appliedAppTheme}
     >
       <Routes>
         <Route path="/" element={authUser ? <Home /> : <Navigate to="/login" />} />

@@ -5,7 +5,7 @@ import { useThemeStore } from "../store/useThemeStore";
 
 const Navbar = () => {
   const { isLogout, authUser } = useAuth();
-  const { theme } = useThemeStore();
+  const { appliedAppTheme } = useThemeStore();
   const location = useLocation();
   if (!authUser) return null;
 
@@ -15,7 +15,7 @@ const Navbar = () => {
   return (
     <nav
       className="hidden h-full w-16 shrink-0 flex-col items-center justify-between border-r border-base-300 bg-base-100 py-4 md:flex"
-      data-theme={theme}
+      data-theme={appliedAppTheme}
       aria-label="Main"
     >
       <div className="flex flex-col items-center gap-3">

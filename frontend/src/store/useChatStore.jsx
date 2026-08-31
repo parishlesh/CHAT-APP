@@ -1,7 +1,7 @@
 import toast from "react-hot-toast";
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
-import { decryptText, encryptText } from "../lib/encryption";
+import { decryptMessage, encryptText, isEncryptedText } from "../lib/encryption";
 import { notifyIncomingMessage } from "../lib/notify";
 import { getVibeMeta } from "../config/conversationVibes";
 import { useAuth } from "./useAuth";
@@ -22,15 +22,30 @@ const hydrate = async (message, peer) => {
   const listed = useChatStore.getState().chatList.find((chat) => idsEqual(chat.user?._id, peer?._id))?.user
     || useChatStore.getState().requests.find((request) => idsEqual(request.user?._id, peer?._id))?.user;
   const other = listed?.encryptionPublicKey ? { ...peer, encryptionPublicKey: listed.encryptionPublicKey } : peer;
-  const displayText = message.deleted ? "" : await decryptText(message.text, me, other);
+  if (message.deleted) {
+    return { ...message, displayText: "", decryptStatus: "decrypted", replyPreview: null, pending: false };
+  }
+  const result = await decryptMessage(message.text, me, other);
   let replyPreview = null;
   if (message.replyTo && typeof message.replyTo === "object" && message.replyTo._id) {
+    const replyResult = message.replyTo.deleted
+      ? { status: "decrypted", text: "" }
+      : await decryptMessage(message.replyTo.text, me, other);
     replyPreview = {
       ...message.replyTo,
-      displayText: message.replyTo.deleted ? "" : await decryptText(message.replyTo.text, me, other),
+      displayText: isEncryptedText(replyResult.text) ? "" : replyResult.text,
+      decryptStatus: isEncryptedText(replyResult.text) ? "pending" : replyResult.status,
     };
   }
-  return { ...message, displayText, replyPreview, pending: false };
+  return {
+    ...message,
+    displayText: result.status === "pending" || isEncryptedText(result.text)
+      ? ""
+      : result.text,
+    decryptStatus: isEncryptedText(result.text) && result.status !== "failed" ? "pending" : result.status,
+    replyPreview,
+    pending: false,
+  };
 };
 
 const lastPreview = async (chat, me) => {
@@ -38,9 +53,18 @@ const lastPreview = async (chat, me) => {
   if (!last) return "";
   if (last.deleted) return "This message was deleted";
   if (last.image && !last.text) return "Photo";
-  const text = await decryptText(last.text, me, chat.user);
-  if (last.image) return text ? text : "Photo";
-  return text;
+  const result = await decryptMessage(last.text, me, chat.user);
+  if (result.status !== "decrypted" || isEncryptedText(result.text)) return last.image ? "Photo" : "Message";
+  if (last.image) return result.text ? result.text : "Photo";
+  return result.text;
+};
+
+const asPendingMessage = (message) => {
+  if (message.deleted) return { ...message, displayText: "", decryptStatus: "decrypted", pending: false };
+  if (!isEncryptedText(message.text)) {
+    return { ...message, displayText: message.text || "", decryptStatus: "decrypted", pending: false };
+  }
+  return { ...message, displayText: "", decryptStatus: "pending", pending: false };
 };
 
 const parseMessagePage = (data) => {
@@ -93,16 +117,17 @@ export const useChatStore = create((set, get) => ({
   },
   getMessages: async (userId) => {
     const token = get().loadToken + 1;
-    set({ isMessageLoading: true, loadToken: token, hasMore: false });
+    set({ isMessageLoading: true, loadToken: token, hasMore: false, messages: [] });
     try {
       const { data } = await axiosInstance.get(`/messages/${userId}`, { params: { limit: 50 } });
       if (get().loadToken !== token || get().selectedUser?._id !== userId) return;
       const page = parseMessagePage(data);
+      const stubs = page.messages.map(asPendingMessage);
+      set({ messages: stubs, hasMore: page.hasMore, isMessageLoading: false });
       const peer = get().selectedUser;
-      set({
-        messages: await Promise.all(page.messages.map((message) => hydrate(message, peer))),
-        hasMore: page.hasMore,
-      });
+      const hydrated = await Promise.all(stubs.map((message) => hydrate(message, peer)));
+      if (get().loadToken !== token || get().selectedUser?._id !== userId) return;
+      set({ messages: hydrated });
       set((state) => ({
         chatList: state.chatList.map((chat) => idsEqual(chat.user?._id, userId) ? { ...chat, unreadCount: 0 } : chat),
       }));
@@ -112,6 +137,20 @@ export const useChatStore = create((set, get) => ({
     } finally {
       if (get().loadToken === token) set({ isMessageLoading: false });
     }
+  },
+  retryPendingDecryption: async () => {
+    const { selectedUser, messages } = get();
+    const selectedId = selectedUser?._id;
+    if (!selectedUser?.encryptionPublicKey || !messages.some((message) => (
+      message.decryptStatus === "pending" || message.replyPreview?.decryptStatus === "pending"
+    ))) return;
+    const hydrated = await Promise.all(messages.map((message) => (
+      message.decryptStatus === "pending" || message.replyPreview?.decryptStatus === "pending"
+        ? hydrate(message, selectedUser)
+        : message
+    )));
+    if (get().selectedUser?._id !== selectedId) return;
+    set({ messages: hydrated });
   },
   loadOlderMessages: async () => {
     const { selectedUser, messages, hasMore, isLoadingOlder } = get();
@@ -123,13 +162,21 @@ export const useChatStore = create((set, get) => ({
       });
       if (get().selectedUser?._id !== selectedUser._id) return false;
       const page = parseMessagePage(data);
-      const older = await Promise.all(page.messages.map((message) => hydrate(message, selectedUser)));
+      const peerId = selectedUser._id;
+      const stubs = page.messages.map(asPendingMessage);
       const existing = new Set(get().messages.map((message) => String(message._id)));
+      const prepend = stubs.filter((message) => !existing.has(String(message._id)));
       set({
-        messages: [...older.filter((message) => !existing.has(String(message._id))), ...get().messages],
+        messages: [...prepend, ...get().messages],
         hasMore: page.hasMore,
         isLoadingOlder: false,
       });
+      const older = await Promise.all(prepend.map((message) => hydrate(message, selectedUser)));
+      if (get().selectedUser?._id !== peerId) return false;
+      const olderById = new Map(older.map((message) => [String(message._id), message]));
+      set((state) => ({
+        messages: state.messages.map((message) => olderById.get(String(message._id)) || message),
+      }));
       return older.length > 0;
     } catch {
       set({ isLoadingOlder: false });
@@ -150,6 +197,7 @@ export const useChatStore = create((set, get) => ({
       createdAt: new Date().toISOString(),
       seen: false,
       pending: true,
+      decryptStatus: "decrypted",
       deleted: false,
       replyPreview: replyingTo ? { ...replyingTo, displayText: replyingTo.displayText } : null,
     };
@@ -239,13 +287,26 @@ export const useChatStore = create((set, get) => ({
       const mine = idsEqual(message.senderId, me?._id);
       const inView = selected && (idsEqual(message.senderId, selected._id) || (mine && idsEqual(message.receiverId, selected._id)));
       if (inView) {
+        const selectedId = selected._id;
         const pendingIndex = get().messages.findIndex((item) => item.pending && idsEqual(item.senderId, message.senderId));
+        if (pendingIndex < 0) {
+          const stub = asPendingMessage(message);
+          set((state) => {
+            if (hasMessage(state.messages, message._id)) return state;
+            return { messages: [...state.messages, stub] };
+          });
+        }
         const hydrated = await hydrate(message, selected);
+        if (get().selectedUser?._id !== selectedId) return;
         set((state) => {
-          if (hasMessage(state.messages, message._id)) return state;
+          if (hasMessage(state.messages, message._id) && pendingIndex < 0) {
+            return { messages: state.messages.map((item) => idsEqual(item._id, message._id) ? hydrated : item) };
+          }
           const next = [...state.messages];
-          if (pendingIndex >= 0) next.splice(pendingIndex, 1, hydrated);
-          else next.push(hydrated);
+          const livePending = next.findIndex((item) => item.pending && idsEqual(item.senderId, message.senderId));
+          if (livePending >= 0) next.splice(livePending, 1, hydrated);
+          else if (!hasMessage(next, message._id)) next.push(hydrated);
+          else return { messages: next.map((item) => idsEqual(item._id, message._id) ? hydrated : item) };
           return { messages: next };
         });
       } else if (!mine) {
@@ -261,7 +322,9 @@ export const useChatStore = create((set, get) => ({
     socket.off("messagesSeen").on("messagesSeen", ({ messageIds }) => set((state) => ({ messages: state.messages.map((message) => messageIds.includes(String(message._id)) || messageIds.includes(message._id) ? { ...message, seen: true } : message) })));
     socket.off("messageEdited").on("messageEdited", async (message) => {
       if (!get().messages.some((item) => idsEqual(item._id, message._id))) return;
-      const updated = await hydrate(message, get().selectedUser);
+      const peer = get().selectedUser;
+      const updated = await hydrate(message, peer);
+      if (get().selectedUser?._id !== peer?._id) return;
       set((state) => ({ messages: state.messages.map((item) => idsEqual(item._id, message._id) ? { ...updated, replyPreview: item.replyPreview } : item) }));
     });
     socket.off("messageDeleted").on("messageDeleted", ({ _id }) => set((state) => ({ messages: state.messages.map((message) => idsEqual(message._id, _id) ? { ...message, deleted: true, text: "", image: "", displayText: "", replyPreview: null } : message) })));
@@ -446,6 +509,7 @@ export const useChatStore = create((set, get) => ({
             : chat)
           : get().chatList,
       });
+      await get().retryPendingDecryption();
     } catch {
       if (get().selectedUser?._id !== selectedUser._id) return;
       set({ conversationVibe: "neutral" });

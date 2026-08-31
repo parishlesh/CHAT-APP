@@ -6,6 +6,7 @@ import { useAuth } from "../store/useAuth";
 import { useChatStore } from "../store/useChatStore";
 import { formatMessageTime } from "../lib/time";
 import { MEMORY_TYPES, REACTIONS, bubbleClass } from "../config/conversationExtras";
+import { isEncryptedText } from "../lib/encryption";
 
 const MessageBubble = ({ message }) => {
   const { authUser } = useAuth();
@@ -21,6 +22,8 @@ const MessageBubble = ({ message }) => {
   const pressTimer = useRef(null);
   const lastMineReaction = useRef(undefined);
   const mine = String(message.senderId) === String(authUser._id);
+  const decrypting = message.decryptStatus === "pending" || isEncryptedText(message.displayText);
+  const decryptFailed = message.decryptStatus === "failed";
 
   const clearPress = () => {
     clearTimeout(pressTimer.current);
@@ -32,7 +35,7 @@ const MessageBubble = ({ message }) => {
   };
 
   const copyText = async () => {
-    if (!message.displayText) return;
+    if (message.decryptStatus === "pending" || message.decryptStatus === "failed" || !message.displayText || isEncryptedText(message.displayText)) return;
     try {
       await navigator.clipboard.writeText(message.displayText);
       toast.success("Copied");
@@ -97,14 +100,26 @@ const MessageBubble = ({ message }) => {
                     {String(message.replyPreview.senderId) === String(authUser._id) ? "You" : selectedUser?.fullName}
                   </p>
                   <p className="truncate opacity-80">
-                    {message.replyPreview.deleted ? "This message was deleted" : message.replyPreview.displayText || (message.replyPreview.image ? "Photo" : "")}
+                    {message.replyPreview.deleted
+                      ? "This message was deleted"
+                      : message.replyPreview.decryptStatus === "pending" || isEncryptedText(message.replyPreview.displayText)
+                        ? "Please wait while we are fetching your chat…"
+                        : message.replyPreview.decryptStatus === "failed"
+                          ? "Unable to decrypt this message"
+                          : message.replyPreview.displayText || (message.replyPreview.image ? "Photo" : "")}
                   </p>
                 </div>
               )}
               {message.image && (
                 <img src={message.image} alt="Sent" className="mb-1 max-h-64 w-full max-w-[240px] rounded-md object-cover" />
               )}
-              {message.displayText && (
+              {decrypting && (
+                <p className="text-[15px] leading-snug opacity-70">Please wait while we are fetching your chat…</p>
+              )}
+              {decryptFailed && (
+                <p className="text-[15px] leading-snug opacity-70">Unable to decrypt this message</p>
+              )}
+              {!decrypting && !decryptFailed && message.displayText && (
                 <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[15px] leading-snug">{message.displayText}</p>
               )}
               {message.edited && <span className="text-[11px] opacity-60">(edited)</span>}
@@ -180,21 +195,23 @@ const MessageBubble = ({ message }) => {
                       </button>
                     ))}
                   </div>
-                  <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => {
-                    setMemoryTitle((message.displayText || "Memory").slice(0, 80));
-                    setMemoryNote("");
-                    setMemoryType("memory");
-                    setMemoryOpen(true);
-                    setMenuOpen(false);
-                  }}>
-                    <Star size={14} /> Save as Memory
-                  </button>
-                  {message.displayText && (
+                  {!decrypting && !decryptFailed && (
+                    <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={() => {
+                      setMemoryTitle((message.displayText || "Memory").slice(0, 80));
+                      setMemoryNote("");
+                      setMemoryType("memory");
+                      setMemoryOpen(true);
+                      setMenuOpen(false);
+                    }}>
+                      <Star size={14} /> Save as Memory
+                    </button>
+                  )}
+                  {!decrypting && !decryptFailed && message.displayText && (
                     <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" onClick={copyText}>
                       <Copy size={14} /> Copy
                     </button>
                   )}
-                  {mine && message.displayText && (
+                  {mine && !decrypting && !decryptFailed && message.displayText && (
                     <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 hover:bg-base-200" aria-label="Edit" onClick={() => { setEditingMessage(message); setMenuOpen(false); }}>
                       <Pencil size={14} /> Edit
                     </button>
