@@ -3,7 +3,16 @@ import { axiosInstance } from "../lib/axios.jsx";
 import toast from "react-hot-toast";
 // import { socket } from "../lib/socket";
 import {io} from "socket.io-client";
-import { ensureEncryptionKey, setSessionWrapPassword, clearSessionWrapPassword, isEncryptionReady, isEncryptionInitialized } from "../lib/encryption";
+import {
+    ensureEncryptionKey,
+    setSessionWrapPassword,
+    clearSessionWrapPassword,
+    isEncryptionReady,
+    isEncryptionInitialized,
+    getEncryptionFailure,
+    hasUnlockSecret,
+    resetUnrecoverableEncryptionIdentity,
+} from "../lib/encryption";
 
 const BASE_URL =
     import.meta.env.MODE === "development"
@@ -19,45 +28,61 @@ const clearAccountStores = async () => {
   useConversationThemeStore.getState().clearConversationMood();
 };
 
+const encryptionState = (extra = {}) => ({
+    encryptionReady: isEncryptionReady(),
+    encryptionInitialized: isEncryptionInitialized(),
+    encryptionFailure: getEncryptionFailure(),
+    canResetEncryption: getEncryptionFailure() === "KEY_BACKUP_REQUIRED" && hasUnlockSecret(),
+    ...extra,
+});
+
 export const useAuth = create((set, get) => ({
     authUser: null,
     isSigningUp: false,
     isLoggingIn: false,
     isUpdatingProfile: false,
     isCheckingAuth: true,
+    isResettingEncryption: false,
+    authEpoch: 0,
     onlineUsers: [],
     socket: null,
     encryptionReady: false,
     encryptionInitialized: false,
+    encryptionFailure: null,
+    canResetEncryption: false,
 
     checkAuth: async () => {
+        const epoch = get().authEpoch;
         try {
             const res = await axiosInstance.get("/auth/check")
+            if (get().authEpoch !== epoch) return;
 
             const user = await ensureEncryptionKey(res.data, axiosInstance);
-            set({ authUser: user, encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized() })
+            if (get().authEpoch !== epoch) return;
+            set({ authUser: user, ...encryptionState() })
             get().connectSocket()
             import("./useChatStore").then(({ useChatStore }) => {
               useChatStore.getState().retryPendingDecryption();
             });
 
         } catch (error) {
+            if (get().authEpoch !== epoch) return;
             clearSessionWrapPassword();
-            set({ authUser: null, encryptionReady: false, encryptionInitialized: false })
+            set({ authUser: null, ...encryptionState({ encryptionReady: false, encryptionInitialized: false, encryptionFailure: null, canResetEncryption: false }) })
             await clearAccountStores();
         } finally {
-            set({ isCheckingAuth: false })
+            if (get().authEpoch === epoch) set({ isCheckingAuth: false })
         }
     },
 
     isSignup: async (data) => {
-        set({ isSigningUp: true });
+        set({ isSigningUp: true, authEpoch: get().authEpoch + 1 });
         try {
             const res = await axiosInstance.post("/auth/signup", data)
             setSessionWrapPassword(data.password);
             const user = await ensureEncryptionKey(res.data, axiosInstance, data.password);
             await clearAccountStores();
-            set({ authUser: user, encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized() })
+            set({ authUser: user, ...encryptionState() })
             toast.success("Account created")
             get().connectSocket()
 
@@ -79,7 +104,7 @@ export const useAuth = create((set, get) => ({
             clearSessionWrapPassword();
             await clearAccountStores();
             get().disconnectSocket()
-            set({ authUser: null, encryptionReady: false, encryptionInitialized: false })
+            set({ authUser: null, ...encryptionState({ encryptionReady: false, encryptionInitialized: false, encryptionFailure: null, canResetEncryption: false }) })
             toast.success("logged out successfully")
         } catch (error) {
             toast.error(error.response?.data?.message || "Logout failed.")
@@ -88,13 +113,13 @@ export const useAuth = create((set, get) => ({
     },
 
     login: async (data) => {
-        set({ isLoggingIn: true });
+        set({ isLoggingIn: true, authEpoch: get().authEpoch + 1 });
         try {
             const res = await axiosInstance.post("/auth/login", data);
             setSessionWrapPassword(data.password);
             const user = await ensureEncryptionKey(res.data, axiosInstance, data.password);
             await clearAccountStores();
-            set({ authUser: user, encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized() });
+            set({ authUser: user, ...encryptionState() });
             toast.success("Logged in successfully");
 
             get().connectSocket();
@@ -115,7 +140,7 @@ export const useAuth = create((set, get) => ({
             const user = await ensureEncryptionKey(res.data, axiosInstance);
             set({
                 authUser: user,
-                encryptionReady: isEncryptionReady(), encryptionInitialized: isEncryptionInitialized(),
+                ...encryptionState(),
             })
             toast.success("profile updated successfully")
         } catch (error) {
@@ -124,6 +149,26 @@ export const useAuth = create((set, get) => ({
 
         } finally {
             set({ isUpdatingProfile: false })
+        }
+    },
+
+    resetUnrecoverableEncryption: async () => {
+        const { authUser } = get();
+        if (!authUser || get().isResettingEncryption) return;
+        set({ isResettingEncryption: true });
+        try {
+            const user = await resetUnrecoverableEncryptionIdentity(authUser, axiosInstance);
+            set({ authUser: user, ...encryptionState() });
+            toast.success("New encryption keys created on this device.");
+            import("./useChatStore").then(({ useChatStore }) => {
+                const chat = useChatStore.getState();
+                chat.retryPendingDecryption();
+                if (chat.selectedUser?._id) chat.getMessages(chat.selectedUser._id);
+            });
+        } catch (error) {
+            toast.error(error.response?.data?.message || error.message || "Could not create new encryption keys.");
+        } finally {
+            set({ isResettingEncryption: false });
         }
     },
 

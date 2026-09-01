@@ -39,7 +39,7 @@ export const toSelfUser = (user) => {
     moodUpdatedAt: value.moodUpdatedAt,
     availability: value.availability,
     encryptionPublicKey: value.encryptionPublicKey || null,
-    encryptionKeyBackup: value.encryptionKeyBackup || null,
+    encryptionKeyBackup: value.encryptionKeyBackup != null ? value.encryptionKeyBackup : null,
   };
 };
 

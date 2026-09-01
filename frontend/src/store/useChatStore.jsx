@@ -1,7 +1,7 @@
 import toast from "react-hot-toast";
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
-import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKey, toPublicJwk, waitForEncryptionInit } from "../lib/encryption";
+import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKey, toPublicJwk, waitForEncryptionInit, cacheEncryptedMessages, readCachedMessages, getEncryptionStatus, isEncryptionReady, getEncryptionFailure } from "../lib/encryption";
 import { notifyIncomingMessage } from "../lib/notify";
 import { getVibeMeta } from "../config/conversationVibes";
 import { useAuth } from "./useAuth";
@@ -16,6 +16,31 @@ const conversationIdForUser = (state, userId) => {
     || null;
 };
 const hasMessage = (messages, id) => messages.some((message) => idsEqual(message._id, id));
+
+const sendLog = (stage, extra = {}) => {
+  if (!import.meta.env.DEV) return;
+  console.info("[CHAT SEND]", { stage, ...extra });
+};
+
+const listedPeerFor = (state, userId) => (
+  state.chatList.find((chat) => idsEqual(chat.user?._id, userId))?.user
+  || state.requests.find((request) => idsEqual(request.user?._id, userId))?.user
+);
+
+const sendFailureMessage = (error) => {
+  const code = error?.response?.data?.message || error?.message || "";
+  if (code === "NO_PEER_KEY") return "This contact's encryption key isn't available yet.";
+  if (code === "KEY_BACKUP_REQUIRED") {
+    return "This device is missing your encryption key. Use the banner at the top, or sign in on a device that still has the key.";
+  }
+  if (code === "ENCRYPTION_NOT_READY" || code === "KEY_NOT_RESTORED") {
+    return "Secure messaging isn't ready. Try logging in again.";
+  }
+  if (code === "E2E_IDENTITY_MISMATCH") return "Encryption identity doesn't match this account.";
+  if (code === "CRYPTO_UNAVAILABLE") return "This browser can't encrypt messages.";
+  if (code === "missing local identity") return "Secure messaging isn't ready. Try logging in again.";
+  return error?.response?.data?.message || "Failed to send message.";
+};
 
 const hydrate = async (message, peer) => {
   await waitForEncryptionInit();
@@ -36,12 +61,13 @@ const hydrate = async (message, peer) => {
   if (message.deleted) {
     return { ...message, displayText: "", decryptStatus: "decrypted", replyPreview: null, pending: false };
   }
-  const result = await decryptMessage(message.text, me, other);
+  const decryptMeta = { messageId: message._id, senderId: message.senderId, recipientId: message.receiverId };
+  const result = await decryptMessage(message.text, me, other, decryptMeta);
   let replyPreview = null;
   if (message.replyTo && typeof message.replyTo === "object" && message.replyTo._id) {
     const replyResult = message.replyTo.deleted
       ? { status: "decrypted", text: "" }
-      : await decryptMessage(message.replyTo.text, me, other);
+      : await decryptMessage(message.replyTo.text, me, other, decryptMeta);
     replyPreview = {
       ...message.replyTo,
       displayText: isEncryptedText(replyResult.text) ? "" : replyResult.text,
@@ -159,9 +185,14 @@ export const useChatStore = create((set, get) => ({
     const token = get().loadToken + 1;
     set({ isMessageLoading: true, loadToken: token, hasMore: false, messages: [] });
     try {
-      const { data } = await axiosInstance.get(`/messages/${userId}`, { params: { limit: 50 } });
+      const cached = await readCachedMessages(userId);
+      if (get().loadToken === token && get().selectedUser?._id === userId && cached.length && !get().messages.length) {
+        set({ messages: cached.map(asPendingMessage) });
+      }
+      const { data } = await axiosInstance.get(`/messages/${userId}`, { params: { limit: 30 } });
       if (get().loadToken !== token || get().selectedUser?._id !== userId) return;
       const page = parseMessagePage(data);
+      await cacheEncryptedMessages(userId, page.messages);
       const stubs = page.messages.map(asPendingMessage);
       set({ messages: stubs, hasMore: page.hasMore, isMessageLoading: false });
       await waitForEncryptionInit();
@@ -201,10 +232,11 @@ export const useChatStore = create((set, get) => ({
     set({ isLoadingOlder: true });
     try {
       const { data } = await axiosInstance.get(`/messages/${selectedUser._id}`, {
-        params: { limit: 50, before: messages[0]._id },
+        params: { limit: 30, before: messages[0]._id },
       });
       if (get().selectedUser?._id !== selectedUser._id) return false;
       const page = parseMessagePage(data);
+      await cacheEncryptedMessages(selectedUser._id, [...page.messages, ...get().messages]);
       const peerId = selectedUser._id;
       const stubs = page.messages.map(asPendingMessage);
       const existing = new Set(get().messages.map((message) => String(message._id)));
@@ -246,13 +278,58 @@ export const useChatStore = create((set, get) => ({
     };
     set({ messages: [...messages, pending], sending: true, replyingTo: null });
     try {
-      const text = await encryptText(messageData.text || "", me, selectedUser);
+      sendLog("started", {
+        recipientId: String(selectedUser._id),
+        conversationId: conversationIdForUser(get(), selectedUser._id),
+        encryptionStatus: getEncryptionStatus(),
+        encryptionFailure: getEncryptionFailure(),
+        hasText: Boolean(messageData.text),
+        hasImage: Boolean(messageData.image),
+      });
+      await waitForEncryptionInit();
+      sendLog("encryption-status", {
+        encryptionStatus: getEncryptionStatus(),
+        localIdentityReady: isEncryptionReady(),
+        recipientPublicKeyPresent: Boolean(toPublicJwk(selectedUser.encryptionPublicKey)),
+      });
+
+      let peerPublic = resolveConversationPeerKey(me, selectedUser, listedPeerFor(get(), selectedUser._id));
+      if (!peerPublic && messageData.text) {
+        await get().getConversationDetails();
+        await get().getChats();
+        const fresh = get().selectedUser;
+        peerPublic = resolveConversationPeerKey(me, fresh, listedPeerFor(get(), selectedUser._id));
+      }
+      if (!peerPublic && messageData.text && selectedUser.username) {
+        const { data } = await axiosInstance.get("/messages/search", { params: { q: selectedUser.username } });
+        const match = (data || []).find((user) => idsEqual(user._id, selectedUser._id));
+        peerPublic = toPublicJwk(match?.encryptionPublicKey);
+        sendLog("recipient-key-refreshed", { recipientPublicKeyPresent: Boolean(peerPublic) });
+      }
+      sendLog("recipient-key", { recipientPublicKeyPresent: Boolean(peerPublic) });
+
+      const recipient = { ...get().selectedUser, encryptionPublicKey: peerPublic || get().selectedUser?.encryptionPublicKey };
+      if (peerPublic) {
+        set((state) => ({
+          selectedUser: { ...state.selectedUser, encryptionPublicKey: peerPublic },
+        }));
+      }
+
+      sendLog("encryption-started", { encryptionStatus: getEncryptionStatus() });
+      const text = await encryptText(messageData.text || "", me, recipient);
+      sendLog("encryption-succeeded", {
+        envelopeVersion: text.startsWith("e2e:v3:") ? 3 : text.startsWith("e2e:v2:") ? 2 : text.startsWith("e2e:v1:") ? 1 : 0,
+        envelopeLength: text.length,
+        transport: "HTTP",
+      });
+      sendLog("transport-started", { url: `/messages/send/${selectedUser._id}` });
       const { data } = await axiosInstance.post(`/messages/send/${selectedUser._id}`, {
         ...messageData,
         text,
         replyTo: replyingTo?._id || null,
       });
-      const hydrated = await hydrate(data, selectedUser);
+      sendLog("transport-succeeded", { messageId: String(data?._id || "") });
+      const hydrated = await hydrate(data, get().selectedUser);
       const keepPlaintext = hydrated.decryptStatus !== "decrypted" && messageData.text;
       const nextMessage = keepPlaintext
         ? { ...hydrated, displayText: messageData.text, decryptStatus: "decrypted" }
@@ -264,8 +341,24 @@ export const useChatStore = create((set, get) => ({
           : state.messages.map((message) => message._id === tempId ? nextMessage : message),
       }));
     } catch (error) {
+      sendLog("failed", {
+        stage: error?.response ? "transport" : "pre-transport",
+        name: error?.name,
+        message: error?.message,
+        code: error?.code,
+        status: error?.response?.status,
+      });
+      if (import.meta.env.DEV) {
+        console.error("[CHAT SEND] failed", {
+          stage: error?.response ? "transport" : "pre-transport",
+          name: error?.name,
+          message: error?.message,
+          code: error?.code,
+          status: error?.response?.status,
+        });
+      }
       set((state) => ({ sending: false, messages: state.messages.filter((message) => message._id !== tempId) }));
-      toast.error(error.response?.data?.message || "Failed to send message.");
+      toast.error(sendFailureMessage(error));
     }
   },
   editMessage: async (messageId, text) => {
@@ -277,7 +370,9 @@ export const useChatStore = create((set, get) => ({
       messages: state.messages.map((message) => message._id === messageId ? { ...message, displayText: text, edited: true } : message),
     }));
     try {
-      const encrypted = await encryptText(text, useAuth.getState().authUser, selectedUser);
+      const me = useAuth.getState().authUser;
+      const peerPublic = resolveConversationPeerKey(me, selectedUser, listedPeerFor(get(), selectedUser?._id));
+      const encrypted = await encryptText(text, me, { ...selectedUser, encryptionPublicKey: peerPublic || selectedUser?.encryptionPublicKey });
       const { data } = await axiosInstance.patch(`/messages/${messageId}`, { text: encrypted });
       const updated = await hydrate(data, selectedUser);
       set((state) => ({

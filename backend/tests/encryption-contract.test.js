@@ -43,9 +43,10 @@ test("peer can decrypt text encrypted with their public key", async () => {
   const messyBob = { ...bobPub, key_ops: ["deriveBits"], ext: true };
   const messyAlice = { ...alicePub, key_ops: ["deriveBits"], ext: true };
   const ciphertext = await encryptText("hello user 2", { ...alice, encryptionPublicKey: messyAlice }, { encryptionPublicKey: messyBob });
-  assert.equal(ciphertext.startsWith("e2e:v2:"), true);
-  assert.equal(await decryptText(ciphertext, bob, { encryptionPublicKey: messyAlice }), "hello user 2");
-  assert.equal(await decryptText(ciphertext, alice, { encryptionPublicKey: messyBob }), "hello user 2");
+  assert.equal(ciphertext.startsWith("e2e:v3:"), true);
+  const transported = JSON.parse(JSON.stringify(ciphertext));
+  assert.equal(await decryptText(transported, bob, { encryptionPublicKey: messyAlice }), "hello user 2");
+  assert.equal(await decryptText(transported, alice, { encryptionPublicKey: messyBob }), "hello user 2");
 });
 
 test("ciphertext is never returned while the local identity is missing", async () => {
@@ -82,6 +83,83 @@ test("private jwk extra fields do not break decryption", async () => {
   const result = await decryptMessage(ciphertext, alice, { encryptionPublicKey: bobPub });
   assert.equal(result.status, "decrypted");
   assert.equal(result.text, "still works");
+});
+
+test("a stale local public copy does not block restore of the wrapped private identity", async () => {
+  const { ensureEncryptionKey, isEncryptionReady, decryptText } = await import("../../frontend/src/lib/encryption.js");
+  const alice = { _id: "stale-pub" };
+  const bob = { _id: "stale-pub-bob" };
+  await provision(alice);
+  await provision(bob);
+  const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-stale-pub-public"));
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-stale-pub-bob-public"));
+  const wrapped = localStorage.getItem("chat-e2e-wrapped-stale-pub");
+  forgetDevice("stale-pub");
+  localStorage.setItem("chat-e2e-wrapped-stale-pub", wrapped);
+  localStorage.setItem("chat-e2e-private-stale-pub-public", JSON.stringify({ kty: "EC", crv: "P-256", x: "aaaa", y: "bbbb" }));
+  await ensureEncryptionKey({ ...alice, encryptionPublicKey: alicePub }, { put: async (_url, body) => ({ data: body }) }, "test-password");
+  assert.equal(isEncryptionReady(), true);
+  const ciphertext = await encryptText("recovered", { ...bob, encryptionPublicKey: bobPub }, { encryptionPublicKey: alicePub });
+  assert.equal(await decryptText(ciphertext, alice, { encryptionPublicKey: bobPub }), "recovered");
+});
+
+test("a matching wrapped identity stored under another local id is recovered without generating", async () => {
+  const { ensureEncryptionKey, isEncryptionReady, decryptText } = await import("../../frontend/src/lib/encryption.js");
+  const alice = { _id: "canonical-id" };
+  const bob = { _id: "scan-bob" };
+  await provision(alice);
+  await provision(bob);
+  const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-canonical-id-public"));
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-scan-bob-public"));
+  const wrapped = localStorage.getItem("chat-e2e-wrapped-canonical-id");
+  localStorage.removeItem("chat-e2e-wrapped-canonical-id");
+  localStorage.removeItem("chat-e2e-private-canonical-id-public");
+  localStorage.setItem("chat-e2e-wrapped-other-slot", wrapped);
+  const puts = [];
+  await ensureEncryptionKey({ ...alice, encryptionPublicKey: alicePub }, {
+    put: async (_url, body) => {
+      puts.push(body);
+      return { data: body };
+    },
+  }, "test-password");
+  assert.equal(isEncryptionReady(), true);
+  assert.equal(puts.length, 1);
+  assert.equal(puts[0].encryptionPublicKey.x, alicePub.x);
+  assert.ok(puts[0].encryptionKeyBackup?.ciphertext);
+  const ciphertext = await encryptText("scanned", { ...bob, encryptionPublicKey: bobPub }, { encryptionPublicKey: alicePub });
+  assert.equal(await decryptText(ciphertext, alice, { encryptionPublicKey: bobPub }), "scanned");
+});
+
+test("server backup from GET restores when the auth payload omitted it", async () => {
+  const { ensureEncryptionKey, isEncryptionReady, decryptText } = await import("../../frontend/src/lib/encryption.js");
+  let saved = null;
+  await ensureEncryptionKey({ _id: "get-backup-user" }, {
+    put: async (_url, body) => {
+      saved = body;
+      return { data: body };
+    },
+  }, "password1");
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-public"));
+  const ciphertext = await encryptText("from get", { _id: "get-backup-user", encryptionPublicKey: saved.encryptionPublicKey }, { encryptionPublicKey: bobPub });
+  forgetDevice("get-backup-user");
+  const second = await ensureEncryptionKey({
+    _id: "get-backup-user",
+    encryptionPublicKey: saved.encryptionPublicKey,
+  }, {
+    put: async (_url, body) => ({ data: body }),
+    get: async () => ({
+      data: {
+        encryptionPublicKey: saved.encryptionPublicKey,
+        encryptionKeyBackup: saved.encryptionKeyBackup,
+        hasPublicKey: true,
+        hasWrappedBackup: true,
+        backupLength: saved.encryptionKeyBackup.ciphertext.length,
+      },
+    }),
+  }, "password1");
+  assert.equal(isEncryptionReady(), true);
+  assert.equal(second.encryptionPublicKey.x, saved.encryptionPublicKey.x);
+  assert.equal(await decryptText(ciphertext, { _id: "get-backup-user", encryptionPublicKey: second.encryptionPublicKey }, { encryptionPublicKey: bobPub }), "from get");
 });
 
 test("own public key is not treated as a usable peer key", async () => {
@@ -168,7 +246,7 @@ test("recipient decrypts when the sender device private key does not match the p
   const rotated = JSON.parse(localStorage.getItem("chat-e2e-private-alice-phone-public"));
   assert.notEqual(rotated.x, alicePub.x);
   const ciphertext = await encryptText("Hello from phone", { ...alice, encryptionPublicKey: alicePub }, { encryptionPublicKey: bobPub });
-  assert.equal(ciphertext.startsWith("e2e:v2:"), true);
+  assert.equal(ciphertext.startsWith("e2e:v3:"), true);
   assert.equal(await decrypt(ciphertext, { ...bob, encryptionPublicKey: bobPub }, { encryptionPublicKey: alicePub }), "Hello from phone");
 });
 
@@ -327,4 +405,40 @@ test("same device restores from wrapped local storage after logout without uploa
   assert.equal(isEncryptionReady(), true);
   assert.equal(second.encryptionPublicKey.x, saved.encryptionPublicKey.x);
   assert.equal(await decryptText(ciphertext, { _id: "same-device", encryptionPublicKey: second.encryptionPublicKey }, { encryptionPublicKey: bobPub }), "still here");
+});
+
+test("v2 payloads still encrypt and decrypt through the same decryptMessage API", async () => {
+  const alice = { _id: "alice-v2keep" };
+  const bob = { _id: "bob-v2keep" };
+  await provision(alice);
+  await provision(bob);
+  const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-alice-v2keep-public"));
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-bob-v2keep-public"));
+  const ciphertext = await encryptText("classic v2", { ...alice, encryptionPublicKey: alicePub }, { encryptionPublicKey: bobPub }, { version: 2 });
+  assert.equal(ciphertext.startsWith("e2e:v2:"), true);
+  assert.equal(await decryptText(ciphertext, bob, { encryptionPublicKey: alicePub }), "classic v2");
+});
+
+test("a first identity is never published without a wrapped backup", async () => {
+  const { ensureEncryptionKey, isEncryptionReady, clearSessionWrapPassword } = await import("../../frontend/src/lib/encryption.js");
+  clearSessionWrapPassword();
+  forgetDevice("needs-password");
+  const puts = [];
+  await ensureEncryptionKey({ _id: "needs-password" }, {
+    put: async (_url, body) => {
+      puts.push(body);
+      return { data: body };
+    },
+  });
+  assert.equal(puts.length, 0);
+  assert.equal(isEncryptionReady(), false);
+});
+
+test("encrypt refuses a silent plaintext fallback when encryption is not ready", async () => {
+  const { encryptText, resetEncryptionStatus } = await import("../../frontend/src/lib/encryption.js");
+  resetEncryptionStatus();
+  await assert.rejects(
+    () => encryptText("secret", { _id: "nobody" }, { encryptionPublicKey: { kty: "EC", crv: "P-256", x: "YQ", y: "Yg" } }),
+    /ENCRYPTION_NOT_READY|KEY_|CRYPTO|NO_PEER|missing/
+  );
 });

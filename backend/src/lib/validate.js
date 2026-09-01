@@ -27,7 +27,8 @@ export function validateImageDataUrl(image) {
 }
 
 export function validateMessageText(text) {
-  const value = typeof text === "string" ? text.trim() : "";
+  const raw = typeof text === "string" ? text : "";
+  const value = raw.startsWith("e2e:") ? raw : raw.trim();
   if (value.length > MAX_MESSAGE_CHARS) throw new AppError(400, "Message is too long.");
   return value;
 }

@@ -11,6 +11,7 @@ import { Loader } from 'lucide-react'
 import { Toaster } from 'react-hot-toast'
 import { useThemeStore } from './store/useThemeStore'
 import BrandMark from './components/BrandMark'
+import EncryptionRecoveryBanner from './components/EncryptionRecoveryBanner'
 
 const App = () => {
   const { authUser, checkAuth, isCheckingAuth } = useAuth();
@@ -35,7 +36,9 @@ const App = () => {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden" data-theme={appliedAppTheme}>
+    <div className="flex h-screen w-full flex-col overflow-hidden" data-theme={appliedAppTheme}>
+      {authUser && <EncryptionRecoveryBanner />}
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {authUser && <Navbar />}
       <div
         className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto"}`}
@@ -48,6 +51,7 @@ const App = () => {
           <Route path="/settings" element={authUser ? <Settings /> : <Navigate to="/login" />} />
           <Route path="/profile" element={authUser ? <Profile /> : <Navigate to="/login" />} />
         </Routes>
+      </div>
       </div>
       <Toaster />
     </div>

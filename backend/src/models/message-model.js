@@ -56,6 +56,9 @@ const messageSchema = new mongoose.Schema(
     kind: { type: String, enum: ["user", "system"], default: "user" },
     systemEvent: { type: String, default: "" },
 
+    encryptionVersion: { type: Number, default: null },
+    keyId: { type: String, default: null },
+
     // TTL removes this document after its absolute expiration time.
     expiresAt: { type: Date, default: null, index: { expireAfterSeconds: 0 } },
   },

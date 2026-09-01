@@ -2,6 +2,7 @@ import cloudinary from "../lib/cloudinary.js";
 import generateToken, { authCookieOptions, toSelfUser } from "../lib/utils.js";
 import User from "../models/user-model.js";
 import bcrypt from "bcryptjs";
+import { logger } from "../lib/logger.js";
 
 const publicKeyFingerprint = (jwk) => {
     if (!jwk?.x || !jwk?.y) return "";
@@ -17,10 +18,24 @@ const sanitizePublicKey = (jwk) => {
 
 const sanitizeKeyBackup = (backup) => {
     if (!backup || typeof backup !== "object" || backup.d || backup.privateKey) return null;
-    const { v, salt, iv, ciphertext } = backup;
+    const v = Number(backup.v);
+    const { salt, iv, ciphertext } = backup;
     if (v !== 1 || typeof salt !== "string" || typeof iv !== "string" || typeof ciphertext !== "string") return null;
     if (!salt || !iv || !ciphertext) return null;
     return { v: 1, salt, iv, ciphertext };
+};
+
+const encryptionIdentityMeta = (user) => {
+    const publicKey = sanitizePublicKey(user?.encryptionPublicKey);
+    const backup = sanitizeKeyBackup(user?.encryptionKeyBackup);
+    return {
+        encryptionPublicKey: publicKey,
+        encryptionKeyBackup: backup,
+        hasPublicKey: Boolean(publicKey),
+        hasWrappedBackup: Boolean(backup),
+        backupLength: backup?.ciphertext?.length || 0,
+        keyId: publicKeyFingerprint(publicKey) ? publicKeyFingerprint(publicKey).slice(0, 24) : null,
+    };
 };
 
 export const signup = async (req, res) => {
@@ -251,6 +266,30 @@ export const checkAuth = (req, res) => {
     res.status(200).json(toSelfUser(req.user));
 };
 
+export const getEncryptionKey = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).select("encryptionPublicKey encryptionKeyBackup");
+        if (!user) return res.status(401).json({ message: "Unauthorized." });
+        const meta = encryptionIdentityMeta(user);
+        logger.info("[e2e-identity] GET", {
+            hasPublicKey: meta.hasPublicKey,
+            hasWrappedBackup: meta.hasWrappedBackup,
+            backupLength: meta.backupLength,
+            keyId: meta.keyId,
+        });
+        res.status(200).json({
+            encryptionPublicKey: meta.encryptionPublicKey,
+            encryptionKeyBackup: meta.encryptionKeyBackup,
+            hasPublicKey: meta.hasPublicKey,
+            hasWrappedBackup: meta.hasWrappedBackup,
+            backupLength: meta.backupLength,
+            keyId: meta.keyId,
+        });
+    } catch {
+        res.status(500).json({ message: "Internal Server Error" });
+    }
+};
+
 export const planEncryptionKeyUpdate = (user, incomingPublic, incomingBackup) => {
     const existingFp = publicKeyFingerprint(user?.encryptionPublicKey);
     const incomingFp = publicKeyFingerprint(incomingPublic);
@@ -259,12 +298,25 @@ export const planEncryptionKeyUpdate = (user, incomingPublic, incomingBackup) =>
     }
     const update = {};
     if (!existingFp && incomingPublic) update.encryptionPublicKey = incomingPublic;
-    if (incomingBackup && !user?.encryptionKeyBackup) update.encryptionKeyBackup = incomingBackup;
+    const existingBackup = sanitizeKeyBackup(user?.encryptionKeyBackup);
+    if (incomingBackup && !existingBackup) update.encryptionKeyBackup = incomingBackup;
     if (!Object.keys(update).length) return { action: "noop" };
     return {
         action: "update",
         update,
         requireEmptyPublic: Boolean(update.encryptionPublicKey),
+    };
+};
+
+export const planEncryptionKeyReset = (user, incomingPublic, incomingBackup) => {
+    if (!incomingPublic || !incomingBackup) return { action: "invalid" };
+    if (sanitizeKeyBackup(user?.encryptionKeyBackup)) return { action: "conflict" };
+    return {
+        action: "reset",
+        update: {
+            encryptionPublicKey: incomingPublic,
+            encryptionKeyBackup: incomingBackup,
+        },
     };
 };
 
@@ -306,8 +358,54 @@ export const updateEncryptionKey = async (req, res) => {
                 ...toSelfUser(current),
             });
         }
+        const meta = encryptionIdentityMeta(saved);
+        logger.info("[e2e-identity] PUT", {
+            action: plan.action,
+            hasPublicKey: meta.hasPublicKey,
+            hasWrappedBackup: meta.hasWrappedBackup,
+            backupLength: meta.backupLength,
+            keyId: meta.keyId,
+        });
         res.status(200).json(toSelfUser(saved));
     } catch (error) {
+        res.status(500).json({ message: "Internal Server Error" });
+    }
+};
+
+export const resetUnrecoverableEncryptionKey = async (req, res) => {
+    try {
+        const incomingPublic = sanitizePublicKey(req.body.encryptionPublicKey);
+        const incomingBackup = sanitizeKeyBackup(req.body.encryptionKeyBackup);
+        const user = await User.findById(req.user._id).select("-password");
+        if (!user) return res.status(401).json({ message: "Unauthorized." });
+
+        const plan = planEncryptionKeyReset(user, incomingPublic, incomingBackup);
+        if (plan.action === "invalid") {
+            return res.status(400).json({ message: "A public key and wrapped backup are required." });
+        }
+        if (plan.action === "conflict") {
+            return res.status(409).json({
+                message: "A recoverable encryption backup already exists.",
+                ...toSelfUser(user),
+            });
+        }
+
+        const saved = await User.findByIdAndUpdate(
+            req.user._id,
+            { $set: plan.update },
+            { new: true }
+        ).select("-password");
+        const meta = encryptionIdentityMeta(saved);
+        logger.info("[e2e-identity] RESET", {
+            previousHasPublicKey: Boolean(sanitizePublicKey(user.encryptionPublicKey)),
+            previousHasWrappedBackup: Boolean(sanitizeKeyBackup(user.encryptionKeyBackup)),
+            hasPublicKey: meta.hasPublicKey,
+            hasWrappedBackup: meta.hasWrappedBackup,
+            backupLength: meta.backupLength,
+            keyId: meta.keyId,
+        });
+        res.status(200).json(toSelfUser(saved));
+    } catch {
         res.status(500).json({ message: "Internal Server Error" });
     }
 };

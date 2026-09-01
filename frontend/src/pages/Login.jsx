@@ -37,6 +37,7 @@ const Login = () => {
                 <input
                   type="text"
                   name="email"
+                  autoComplete="username"
                   value={formData.email}
                   onChange={handleChange}
                   className="input input-bordered mt-1 w-full"
@@ -49,6 +50,7 @@ const Login = () => {
                 <input
                   type={showPassword ? "text" : "password"}
                   name="password"
+                  autoComplete="current-password"
                   value={formData.password}
                   onChange={handleChange}
                   className="input input-bordered mt-1 w-full pr-10"

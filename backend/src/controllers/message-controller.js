@@ -9,6 +9,7 @@ import { requireObjectId, sanitizeQuery, validateExpiresAt, validateImageDataUrl
 
 import { ALLOWED_MOODS, ALLOWED_VIBES, REACTION_KEYS } from "../lib/catalog.js";
 import { REQUEST_DECLINED_EVENT, REQUEST_DECLINED_TEXT, assertCanSendMessage, initiatorId } from "../lib/conversation-access.js";
+import { describeEncryptedText } from "../lib/envelope.js";
 
 const publicUser = "fullName username email profilePic about encryptionPublicKey mood moodUpdatedAt availability";
 const pairQuery = (firstId, secondId) => ({ participants: { $all: [firstId, secondId], $size: 2 } });
@@ -92,7 +93,7 @@ export const getMessages = asyncHandler(async (req, res) => {
   const conversation = await Conversation.findOne(pairQuery(req.user._id, req.params.id));
   if (!conversation) return res.status(200).json({ messages: [], hasMore: false });
 
-  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
   const filter = { conversationId: conversation._id };
   if (req.query.before) {
     requireObjectId(req.query.before, "cursor");
@@ -148,6 +149,15 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const expiry = validateExpiresAt(req.body.expiresAt);
   const senderId = req.user._id;
   const receiverId = requireObjectId(req.params.id, "user id");
+  const envelopePreview = describeEncryptedText(text);
+  logger.info("[CHAT MESSAGE] HTTP request received", {
+    senderId: String(senderId),
+    recipientId: receiverId,
+    conversationPeer: receiverId,
+    encryptionVersion: envelopePreview.encryptionVersion,
+    ciphertextLength: text.length,
+    hasImage: Boolean(image),
+  });
   if (!text && !image) throw new AppError(400, "Message text or image is required.");
   if (senderId.toString() === receiverId) throw new AppError(400, "You cannot message yourself.");
   if (!(await User.exists({ _id: receiverId }))) throw new AppError(404, "User not found.");
@@ -183,6 +193,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
     if (original) replyToId = original._id;
   }
 
+  const envelope = describeEncryptedText(text);
   const message = await Message.create({
     conversationId: conversation._id,
     senderId,
@@ -191,10 +202,20 @@ export const sendMessage = asyncHandler(async (req, res) => {
     image: imageUrl,
     expiresAt: expiry,
     replyTo: replyToId,
+    encryptionVersion: envelope.encryptionVersion,
+    keyId: envelope.keyId,
   });
   conversation.lastMessage = message._id;
   await conversation.save();
   const populated = await Message.findById(message._id).populate("replyTo", "senderId text image deleted");
+  logger.info("[CHAT MESSAGE] persistence succeeded", {
+    messageId: String(populated._id),
+    conversationId: String(conversation._id),
+    senderId: String(senderId),
+    recipientId: receiverId,
+    encryptionVersion: envelope.encryptionVersion,
+    ciphertextLength: text.length,
+  });
 
   emitToUser(receiverId, "newMessage", populated);
   emitToUser(senderId, "newMessage", populated);
@@ -220,8 +241,11 @@ export const editMessage = asyncHandler(async (req, res) => {
   if (message.deleted) throw new AppError(400, "Deleted messages cannot be edited.");
   const text = validateMessageText(req.body.text || "");
   if (!text) throw new AppError(400, "Message text is required.");
+  const envelope = describeEncryptedText(text);
   message.text = text;
   message.edited = true;
+  message.encryptionVersion = envelope.encryptionVersion;
+  message.keyId = envelope.keyId;
   await message.save();
   emitToUser(message.receiverId, "messageEdited", message);
   emitToUser(message.senderId, "messageEdited", message);
