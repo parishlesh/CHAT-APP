@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planEncryptionKeyUpdate, planEncryptionKeyReset } from "../src/controllers/auth-controller.js";
+import { planEncryptionKeyUpdate, planEncryptionKeyReset, planPasswordEncryptionUpdate } from "../src/controllers/auth-controller.js";
 
 test("planEncryptionKeyUpdate never replaces an existing public key", () => {
   const existing = {
@@ -57,4 +57,43 @@ test("planEncryptionKeyReset refuses to overwrite a recoverable backup", () => {
     backup
   );
   assert.equal(plan.action, "conflict");
+});
+
+test("password change rewraps backup without rotating the public identity", () => {
+  const key = { kty: "EC", crv: "P-256", x: "aaa", y: "bbb" };
+  const oldBackup = { v: 1, salt: "old", iv: "old", ciphertext: "old" };
+  const newBackup = { v: 1, salt: "new", iv: "new", ciphertext: "new" };
+  const plan = planPasswordEncryptionUpdate(
+    { encryptionPublicKey: key, encryptionKeyBackup: oldBackup },
+    key,
+    newBackup
+  );
+  assert.equal(plan.action, "rewrap");
+  assert.equal(plan.encryptionUpdate.encryptionKeyBackup.ciphertext, "new");
+  assert.equal("encryptionPublicKey" in plan.encryptionUpdate, false);
+});
+
+test("password change refuses a backup for a different E2E identity", () => {
+  const existing = { kty: "EC", crv: "P-256", x: "aaa", y: "bbb" };
+  const other = { kty: "EC", crv: "P-256", x: "ccc", y: "ddd" };
+  const backup = { v: 1, salt: "s", iv: "i", ciphertext: "c" };
+  const plan = planPasswordEncryptionUpdate(
+    { encryptionPublicKey: existing, encryptionKeyBackup: backup },
+    other,
+    backup
+  );
+  assert.equal(plan.action, "identity-mismatch");
+});
+
+test("password change without a local private key clears only the wrapped backup", () => {
+  const key = { kty: "EC", crv: "P-256", x: "aaa", y: "bbb" };
+  const backup = { v: 1, salt: "s", iv: "i", ciphertext: "c" };
+  const plan = planPasswordEncryptionUpdate(
+    { encryptionPublicKey: key, encryptionKeyBackup: backup },
+    null,
+    null
+  );
+  assert.equal(plan.action, "clear-unrecoverable-backup");
+  assert.equal(plan.encryptionUpdate.encryptionKeyBackup, null);
+  assert.equal("encryptionPublicKey" in plan.encryptionUpdate, false);
 });

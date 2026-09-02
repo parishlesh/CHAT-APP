@@ -29,6 +29,24 @@ export const sendLimiter = rateLimit({
   message: { message: "You are sending messages too quickly." },
 });
 
+export const otpRequestLimiter = rateLimit({
+  windowMs,
+  max: 8,
+  skip: () => process.env.NODE_ENV === "test",
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many OTP requests" },
+});
+
+export const otpVerifyLimiter = rateLimit({
+  windowMs,
+  max: 15,
+  skip: () => process.env.NODE_ENV === "test",
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many attempts" },
+});
+
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 300,

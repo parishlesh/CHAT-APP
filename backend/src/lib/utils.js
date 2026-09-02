@@ -18,8 +18,17 @@ export const authCookieOptions = ({ clearing = false } = {}) => {
   return options;
 };
 
-const generateToken = (userId, res) => {
-  const token = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "7d" });
+export const tokenVersionOf = (userOrVersion) => {
+  if (userOrVersion && typeof userOrVersion === "object") return Number(userOrVersion.tokenVersion || 0);
+  return Number(userOrVersion || 0);
+};
+
+const generateToken = (userId, res, tokenVersion = 0) => {
+  const token = jwt.sign(
+    { userId, tv: tokenVersionOf(tokenVersion) },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
   res.cookie("jwt", token, authCookieOptions());
   return token;
 };

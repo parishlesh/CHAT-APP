@@ -70,6 +70,11 @@ const Login = () => {
                 {isLoggingIn ? "Logging in..." : "Login"}
               </button>
             </form>
+            <p className="mt-3 text-center text-sm">
+              <Link to="/forgot-password" className="link link-primary">
+                Forgot password?
+              </Link>
+            </p>
             <p className="mt-4 text-center text-sm text-base-content/60">
               Don&apos;t have an account?{" "}
               <Link to="/signup" className="link link-primary">

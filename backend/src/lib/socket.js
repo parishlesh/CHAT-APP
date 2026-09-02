@@ -3,6 +3,7 @@ import http from "http";
 import express from "express";
 import jwt from "jsonwebtoken";
 import Conversation from "../models/conversation-model.js";
+import User from "../models/user-model.js";
 import { isOriginAllowed } from "./origins.js";
 import { addUserSocket, getOnlineUserIds, getReceiverSocketId, getSocketIds, removeUserSocket } from "./presence.js";
 import { logger } from "./logger.js";
@@ -35,18 +36,28 @@ function parseCookies(header = "") {
   );
 }
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
     const token = parseCookies(socket.handshake.headers.cookie || "").jwt;
     if (!token || !process.env.JWT_SECRET) return next(new Error("unauthorized"));
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (!decoded?.userId || !isObjectId(decoded.userId)) return next(new Error("unauthorized"));
+    const user = await User.findById(decoded.userId).select("tokenVersion");
+    if (!user) return next(new Error("unauthorized"));
+    if (Number(decoded.tv || 0) !== Number(user.tokenVersion || 0)) return next(new Error("unauthorized"));
     socket.userId = String(decoded.userId);
     next();
   } catch {
     next(new Error("unauthorized"));
   }
 });
+
+export function disconnectUserSockets(userId) {
+  getSocketIds(userId).forEach((socketId) => {
+    const connected = io.sockets.sockets.get(socketId);
+    if (connected) connected.disconnect(true);
+  });
+}
 
 export function emitToUser(userId, event, payload) {
   getSocketIds(userId).forEach((socketId) => io.to(socketId).emit(event, payload));

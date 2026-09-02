@@ -4,6 +4,7 @@ import { useThemeStore } from "../store/useThemeStore";
 import { ArrowLeft, MessageSquare, Settings as SettingsIcon, User } from "lucide-react";
 import { Link } from "react-router-dom";
 import ScrollContainer from "../components/scrollbarContainer";
+import ChangePasswordPanel from "../components/ChangePasswordPanel";
 
 const Settings = () => {
   const { appliedAppTheme, previewAppTheme, setPreviewAppTheme, resetPreviewAppTheme, applyAppTheme } = useThemeStore();
@@ -21,6 +22,8 @@ const Settings = () => {
           <Link to="/" className="btn btn-ghost btn-sm w-fit md:hidden" aria-label="Back to messages">
             <ArrowLeft size={16} /> Messages
           </Link>
+          <ChangePasswordPanel />
+
           <div className="flex flex-col gap-1">
             <h2 className="text-lg font-semibold">App theme</h2>
             <p className="text-sm text-base-content/70">Preview a look for the rest of the app, then apply it. Conversations follow your Mood, not this setting.</p>

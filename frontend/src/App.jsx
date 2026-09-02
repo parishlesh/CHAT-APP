@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Home from './pages/Home'
 import Signup from './pages/Signup'
 import Login from './pages/Login'
+import ForgotPassword from './pages/ForgotPassword'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 import { useAuth } from './store/useAuth'
@@ -48,6 +49,7 @@ const App = () => {
           <Route path="/" element={authUser ? <Home /> : <Navigate to="/login" />} />
           <Route path="/signup" element={!authUser ? <Signup /> : <Navigate to="/" />} />
           <Route path="/login" element={!authUser ? <Login /> : <Navigate to="/" />} />
+          <Route path="/forgot-password" element={!authUser ? <ForgotPassword /> : <Navigate to="/" />} />
           <Route path="/settings" element={authUser ? <Settings /> : <Navigate to="/login" />} />
           <Route path="/profile" element={authUser ? <Profile /> : <Navigate to="/login" />} />
         </Routes>

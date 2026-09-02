@@ -12,6 +12,7 @@ import {
     getEncryptionFailure,
     hasUnlockSecret,
     resetUnrecoverableEncryptionIdentity,
+    preparePasswordChangeBackup,
 } from "../lib/encryption";
 
 const BASE_URL =
@@ -150,6 +151,46 @@ export const useAuth = create((set, get) => ({
         } finally {
             set({ isUpdatingProfile: false })
         }
+    },
+
+    requestPasswordOtp: async ({ purpose, identifier } = {}) => {
+        const body = purpose === "PASSWORD_CHANGE"
+            ? { purpose: "PASSWORD_CHANGE" }
+            : { purpose: "PASSWORD_RESET", identifier };
+        const { data } = await axiosInstance.post("/auth/password/otp/request", body);
+        return data;
+    },
+
+    verifyPasswordOtp: async ({ purpose, identifier, otp } = {}) => {
+        const body = purpose === "PASSWORD_CHANGE"
+            ? { purpose: "PASSWORD_CHANGE", otp }
+            : { purpose: "PASSWORD_RESET", identifier, otp };
+        const { data } = await axiosInstance.post("/auth/password/otp/verify", body);
+        return data;
+    },
+
+    commitPasswordChange: async ({ resetToken, newPassword, userHint } = {}) => {
+        const wrapped = await preparePasswordChangeBackup(userHint || get().authUser, newPassword);
+        const body = { resetToken, newPassword };
+        if (wrapped.available) {
+            body.encryptionPublicKey = wrapped.encryptionPublicKey;
+            body.encryptionKeyBackup = wrapped.encryptionKeyBackup;
+        }
+        const { data } = await axiosInstance.post("/auth/password/change", body);
+        get().disconnectSocket();
+        clearSessionWrapPassword();
+        await clearAccountStores();
+        set({
+            authEpoch: get().authEpoch + 1,
+            authUser: null,
+            ...encryptionState({
+                encryptionReady: false,
+                encryptionInitialized: false,
+                encryptionFailure: null,
+                canResetEncryption: false,
+            }),
+        });
+        return { ...data, encryptionBackupPrepared: wrapped.available };
     },
 
     resetUnrecoverableEncryption: async () => {

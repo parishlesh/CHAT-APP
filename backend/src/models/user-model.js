@@ -34,6 +34,11 @@ const userSchema = new mongoose.Schema(
       minlength: 6,
     },
 
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
+
     profilePic: {
       type: String,
       default: "",

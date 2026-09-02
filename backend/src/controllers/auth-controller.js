@@ -102,7 +102,7 @@ export const signup = async (req, res) => {
             profilePic,
         });
 
-        generateToken(user._id, res);
+        generateToken(user._id, res, user.tokenVersion);
 
         res.status(201).json(toSelfUser(user));
     } catch (error) {
@@ -149,7 +149,7 @@ export const login = async (req, res) => {
             });
         }
 
-        generateToken(user._id, res);
+        generateToken(user._id, res, user.tokenVersion);
 
         res.status(200).json(toSelfUser(user));
     } catch (error) {
@@ -306,6 +306,30 @@ export const planEncryptionKeyUpdate = (user, incomingPublic, incomingBackup) =>
         update,
         requireEmptyPublic: Boolean(update.encryptionPublicKey),
     };
+};
+
+export const planPasswordEncryptionUpdate = (user, incomingPublic, incomingBackup) => {
+    const existingFp = publicKeyFingerprint(user?.encryptionPublicKey);
+    const incomingFp = publicKeyFingerprint(incomingPublic);
+    if (incomingBackup) {
+        if (!existingFp) {
+            return { action: "password-only", encryptionUpdate: {} };
+        }
+        if (!incomingFp || existingFp !== incomingFp) {
+            return { action: "identity-mismatch" };
+        }
+        return {
+            action: "rewrap",
+            encryptionUpdate: { encryptionKeyBackup: incomingBackup },
+        };
+    }
+    if (sanitizeKeyBackup(user?.encryptionKeyBackup)) {
+        return {
+            action: "clear-unrecoverable-backup",
+            encryptionUpdate: { encryptionKeyBackup: null },
+        };
+    }
+    return { action: "password-only", encryptionUpdate: {} };
 };
 
 export const planEncryptionKeyReset = (user, incomingPublic, incomingBackup) => {

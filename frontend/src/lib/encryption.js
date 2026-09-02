@@ -372,6 +372,56 @@ export async function getKeyId(me) {
   return identity.keyId;
 }
 
+export async function preparePasswordChangeBackup(user, newPassword) {
+  const id = userIdOf(user);
+  if (import.meta.env?.DEV) {
+    console.info("[e2e-identity]", {
+      source: "password-change-started",
+      hasUser: Boolean(id),
+    });
+  }
+  if (!id || !newPassword) return { available: false };
+  let local = null;
+  try {
+    local = await tryLoadLocalKeyPair(id);
+  } catch {
+    local = null;
+  }
+  if (!local) {
+    const expected = toPublicJwk(user?.encryptionPublicKey);
+    if (expected) local = await recoverMatchingLocalIdentity(id, expected);
+  }
+  if (!local) {
+    if (import.meta.env?.DEV) {
+      console.info("[e2e-identity]", { source: "password-change", e2eIdentityAvailable: false });
+    }
+    return { available: false };
+  }
+  if (import.meta.env?.DEV) {
+    console.info("[e2e-identity]", {
+      source: "password-change-rewrap-started",
+      keyId: local.keyId.slice(0, 16),
+    });
+  }
+  const backup = await wrapPrivateJwk(local.privateJwk, newPassword);
+  const restored = toPrivateJwk(await unwrapPrivateJwk(backup, newPassword));
+  if (!restored || !isSamePublicKey(toPublicJwk(restored), local.publicJwk)) {
+    throw new Error("BACKUP_REWRAP_FAILED");
+  }
+  if (import.meta.env?.DEV) {
+    console.info("[e2e-identity]", {
+      source: "password-change-rewrap-succeeded",
+      keyId: local.keyId.slice(0, 16),
+    });
+  }
+  return {
+    available: true,
+    encryptionPublicKey: local.publicJwk,
+    encryptionKeyBackup: backup,
+    keyId: local.keyId,
+  };
+}
+
 async function encryptAesBlob(aesKey, text) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, encoder.encode(text));

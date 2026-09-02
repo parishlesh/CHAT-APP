@@ -442,3 +442,66 @@ test("encrypt refuses a silent plaintext fallback when encryption is not ready",
     /ENCRYPTION_NOT_READY|KEY_|CRYPTO|NO_PEER|missing/
   );
 });
+
+test("password change rewraps the same identity and does not download chat history", async () => {
+  const {
+    ensureEncryptionKey,
+    preparePasswordChangeBackup,
+    decryptText,
+    isEncryptionReady,
+  } = await import("../../frontend/src/lib/encryption.js");
+  const alice = { _id: "pw-change-user" };
+  const bob = { _id: "pw-change-bob" };
+  await provision(alice);
+  await provision(bob);
+  const alicePub = JSON.parse(localStorage.getItem("chat-e2e-private-pw-change-user-public"));
+  const bobPub = JSON.parse(localStorage.getItem("chat-e2e-private-pw-change-bob-public"));
+  const ciphertext = await encryptText("historical", { ...alice, encryptionPublicKey: alicePub }, { encryptionPublicKey: bobPub });
+  const gets = [];
+  const puts = [];
+  const wrapped = await preparePasswordChangeBackup({ ...alice, encryptionPublicKey: alicePub }, "brand-new-password");
+  assert.equal(wrapped.available, true);
+  assert.equal(wrapped.encryptionPublicKey.x, alicePub.x);
+  assert.ok(wrapped.encryptionKeyBackup?.salt);
+  assert.ok(wrapped.encryptionKeyBackup?.iv);
+  assert.equal(gets.length, 0);
+  assert.equal(puts.length, 0);
+  assert.equal(await decryptText(ciphertext, { ...alice, encryptionPublicKey: alicePub }, { encryptionPublicKey: bobPub }), "historical");
+  forgetDevice("pw-change-user");
+  const restored = await ensureEncryptionKey({
+    ...alice,
+    encryptionPublicKey: wrapped.encryptionPublicKey,
+    encryptionKeyBackup: wrapped.encryptionKeyBackup,
+  }, {
+    put: async (_url, body) => {
+      puts.push(body);
+      return { data: body };
+    },
+    get: async () => {
+      gets.push("encryption-key");
+      return {
+        data: {
+          encryptionPublicKey: wrapped.encryptionPublicKey,
+          encryptionKeyBackup: wrapped.encryptionKeyBackup,
+          hasPublicKey: true,
+          hasWrappedBackup: true,
+        },
+      };
+    },
+  }, "brand-new-password");
+  assert.equal(isEncryptionReady(), true);
+  assert.equal(restored.encryptionPublicKey.x, alicePub.x);
+  assert.equal(puts.length, 0);
+  assert.equal(await decryptText(ciphertext, { ...alice, encryptionPublicKey: restored.encryptionPublicKey }, { encryptionPublicKey: bobPub }), "historical");
+});
+
+test("password change without a local private key does not generate a replacement identity", async () => {
+  const { preparePasswordChangeBackup, hasStoredPrivateKey } = await import("../../frontend/src/lib/encryption.js");
+  forgetDevice("pw-missing-user");
+  const result = await preparePasswordChangeBackup({
+    _id: "pw-missing-user",
+    encryptionPublicKey: { kty: "EC", crv: "P-256", x: "YQ", y: "Yg" },
+  }, "new-password");
+  assert.equal(result.available, false);
+  assert.equal(hasStoredPrivateKey("pw-missing-user"), false);
+});
