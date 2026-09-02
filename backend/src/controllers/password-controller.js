@@ -128,7 +128,7 @@ export const requestPasswordOtp = asyncHandler(async (req, res) => {
       await issueOtpForUser({ user, purpose, ip });
     } catch (error) {
       if (error instanceof AppError && error.status === 429) throw error;
-      logger.debug("[password-otp] request failed", { purpose });
+      logger.error("[password-otp] request failed", { purpose, reason: error?.code || error?.message });
     }
   }
 

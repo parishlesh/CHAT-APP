@@ -83,6 +83,16 @@ export async function sendPasswordOtpEmail({ to, purpose, otp, expiresMinutes = 
 
   if (process.env.NODE_ENV === "test") return { sent: false, skipped: "test" };
 
+  // Render blocks outbound SMTP (25/465/587). Production must use Brevo HTTPS.
+  if (process.env.NODE_ENV === "production") {
+    if (!brevoApiKey()) {
+      logger.error("[password-otp] BREVO_API_KEY is missing; SMTP will time out on this host");
+      throw new Error("BREVO_API_KEY is not configured");
+    }
+    await sendViaBrevoHttp({ to, subject, text, html });
+    return { sent: true, via: "brevo-http" };
+  }
+
   if (brevoApiKey()) {
     await sendViaBrevoHttp({ to, subject, text, html });
     return { sent: true, via: "brevo-http" };
