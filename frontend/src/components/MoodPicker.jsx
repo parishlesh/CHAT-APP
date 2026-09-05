@@ -11,9 +11,9 @@ const MoodPicker = () => {
   const current = getMoodMeta(mine?.mood);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeMoodPicker}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={closeMoodPicker}>
       <div
-        className="ui-pop w-full max-w-sm rounded-2xl bg-base-100 p-4 shadow-xl text-base-content"
+        className="ui-pop max-h-[min(36rem,90dvh)] w-full max-w-sm overflow-y-auto rounded-t-2xl bg-base-100 p-4 shadow-xl text-base-content safe-bottom sm:rounded-2xl"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-labelledby="mood-picker-title"

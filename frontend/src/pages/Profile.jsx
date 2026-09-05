@@ -60,26 +60,25 @@ const Profile = () => {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto overscroll-contain safe-bottom">
       <div className="px-4 pt-4 md:hidden">
         <Link to="/" className="btn btn-ghost btn-sm w-fit" aria-label="Back to messages">
           <ArrowLeft size={16} /> Messages
         </Link>
       </div>
-      <div className="py-8 space-y-6 flex flex-col items-center justify-center w-full  bg-base-100 ">
-        <div className="relative  inline-flex flex-col w-64  mx-auto">
-          <img
-            src={selectedImg || authUser.profilePic || "/avatar.svg"}
-            alt="Profile"
-            className="w-64 h-64 rounded-full object-cover border-4 border-white shadow-md"
-          />
-          <div>
+      <div className="flex w-full flex-col items-center justify-center space-y-6 bg-base-100 px-4 py-6 sm:py-8">
+        <div className="relative mx-auto inline-flex w-full max-w-[16rem] flex-col items-center">
+          <div className="relative">
+            <img
+              src={selectedImg || authUser.profilePic || "/avatar.svg"}
+              alt="Profile"
+              className="h-32 w-32 rounded-full border-4 border-white object-cover shadow-md sm:h-48 sm:w-48 md:h-64 md:w-64"
+            />
             <label
               htmlFor="avatar-upload"
-              className={`absolute bottom-28 right-2 bg-white p-2 rounded-full shadow-md cursor-pointer ${isUpdatingProfile ? "animate-pulse pointer-events-none opacity-50" : ""
-                }`}
+              className={`absolute bottom-1 right-1 cursor-pointer rounded-full bg-white p-2 shadow-md sm:bottom-2 sm:right-2 ${isUpdatingProfile ? "pointer-events-none animate-pulse opacity-50" : ""}`}
             >
-              <Camera className=" w-8 h-8" />
+              <Camera className="h-5 w-5 sm:h-8 sm:w-8" />
               <input
                 type="file"
                 id="avatar-upload"
@@ -91,17 +90,17 @@ const Profile = () => {
             </label>
           </div>
 
-          <div className="flex flex-col items-center mt-4 text-center">
-            <div className="font-semibold text-2xl py-2">{authUser.fullName}</div>
-            <div className="text-lg py-2">{authUser.email}</div>
+          <div className="mt-4 flex w-full min-w-0 flex-col items-center text-center">
+            <div className="max-w-full truncate py-1 text-xl font-semibold sm:text-2xl">{authUser.fullName}</div>
+            <div className="max-w-full break-all py-1 text-sm sm:text-lg">{authUser.email}</div>
           </div>
         </div>
       </div>
 
-      <div className="m-6">
+      <div className="mx-4 mb-8 sm:m-6">
         <div className="mt-6 w-full">
           <label className="text-lg">Username</label>
-          <input disabled={!editing} value={username} onChange={(e) => setUsername(e.target.value)} className="input input-bordered w-full mt-2" />
+          <input disabled={!editing} value={username} onChange={(e) => setUsername(e.target.value)} className="input input-bordered mt-2 w-full text-base" />
         </div>
         <div className="mt-6 w-full flex items-center justify-between gap-2 ">
           <div className="flex items-center gap-2">
@@ -123,12 +122,12 @@ const Profile = () => {
           value={about}
           onChange={(e) => setAbout(e.target.value)}
           placeholder="No bio available."
-          className="textarea textarea-bordered w-full resize-none"
+          className="textarea textarea-bordered w-full resize-none text-base"
           />
         </div>
         <div className="mt-6 w-full">
           <label className="text-lg">Phone number</label>
-          <input disabled={!editing} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="No phone number" className="input input-bordered w-full mt-2" />
+          <input disabled={!editing} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="No phone number" className="input input-bordered mt-2 w-full text-base" />
         </div>
       </div>
     </div>

@@ -166,7 +166,7 @@ const MessageInput = () => {
   };
 
   return (
-    <form onSubmit={handleSendMessage} className="shrink-0 border-t border-base-300 bg-base-100 px-2 py-2 sm:px-3">
+    <form onSubmit={handleSendMessage} className="shrink-0 border-t border-base-300 bg-base-100 px-2 py-2 sm:px-3 safe-bottom">
       {editingMessage && (
         <div className="mb-2 flex items-center justify-between rounded-md bg-base-200 px-3 py-1.5 text-xs">
           <span className="font-medium">Editing message</span>
@@ -232,7 +232,7 @@ const MessageInput = () => {
           onBlur={stopTyping}
           onKeyDown={onKeyDown}
           placeholder="Type a message"
-          className="max-h-32 min-h-[40px] flex-1 resize-none rounded-2xl border border-base-300 bg-base-200 px-3 py-2 text-sm leading-5 outline-none focus:border-primary"
+          className="max-h-32 min-h-[40px] min-w-0 flex-1 resize-none rounded-2xl border border-base-300 bg-base-200 px-3 py-2 text-base leading-5 outline-none focus:border-primary sm:text-sm"
         />
         <button
           type="submit"

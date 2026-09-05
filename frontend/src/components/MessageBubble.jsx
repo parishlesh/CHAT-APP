@@ -78,7 +78,7 @@ const MessageBubble = ({ message }) => {
   return (
     <div id={`msg-${message._id}`} className={`ui-msg-enter flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
-        className="group relative max-w-[80%] sm:max-w-[70%]"
+        className="group relative max-w-[85%] sm:max-w-[70%]"
         onContextMenu={(event) => { event.preventDefault(); openMenu(); }}
         onTouchStart={() => { pressTimer.current = setTimeout(openMenu, 500); }}
         onTouchEnd={clearPress}
@@ -169,7 +169,7 @@ const MessageBubble = ({ message }) => {
         {menuOpen && !message.deleted && (
           <>
             <button type="button" className="fixed inset-0 z-20 cursor-default" aria-label="Close message actions" onClick={() => { setMenuOpen(false); setConfirmDelete(false); }} />
-            <div className={`ui-pop absolute z-30 mt-1 w-44 rounded-lg border border-base-300 bg-base-100 py-1 text-sm text-base-content shadow-md ${mine ? "right-0" : "left-0"}`}>
+            <div className={`ui-pop absolute z-30 mt-1 w-44 max-w-[calc(100vw-2rem)] rounded-lg border border-base-300 bg-base-100 py-1 text-sm text-base-content shadow-md ${mine ? "right-0" : "left-0"}`}>
               {confirmDelete ? (
                 <div className="px-3 py-2">
                   <p className="mb-2 text-xs">Delete message?</p>
@@ -242,7 +242,7 @@ const MessageBubble = ({ message }) => {
           <>
             <button type="button" className="fixed inset-0 z-40 cursor-default bg-black/30" aria-label="Close memory" onClick={() => setMemoryOpen(false)} />
             <form
-              className="ui-pop absolute z-50 mt-2 w-64 rounded-lg border border-base-300 bg-base-100 p-3 text-base-content shadow-md"
+              className="ui-pop absolute left-0 right-0 z-50 mt-2 w-full max-w-64 rounded-lg border border-base-300 bg-base-100 p-3 text-base-content shadow-md sm:left-auto sm:right-0 sm:w-64"
               onSubmit={async (event) => {
                 event.preventDefault();
                 if (memoryBusy) return;

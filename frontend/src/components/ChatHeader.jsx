@@ -42,8 +42,8 @@ const ChatHeader = () => {
     : null;
 
   return (
-    <div className="relative flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-base-300 bg-base-100 px-2 sm:px-3">
-      <div className="flex min-w-0 items-center gap-2">
+    <div className="relative flex min-h-14 shrink-0 items-center justify-between gap-1 border-b border-base-300 bg-base-100 px-1 sm:gap-2 sm:px-3">
+      <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
         <button
           onClick={() => setSelectedUser(null)}
           className="ui-press rounded-full p-2 hover:bg-base-200 md:hidden"
@@ -60,7 +60,7 @@ const ChatHeader = () => {
           <p className="truncate font-medium leading-tight">{selectedUser.fullName}</p>
           <p className="truncate text-xs text-base-content/60">{status}{availability ? ` · ${availability}` : ""}</p>
           {(theirMood || modeMeta) && (
-            <p className="truncate text-[11px] text-base-content/70">
+            <p className="hidden truncate text-[11px] text-base-content/70 sm:block">
               {theirMood ? `Mood ${theirMood.emoji} ${theirMood.label}` : ""}
               {theirMood && modeMeta ? " · " : ""}
               {modeMeta ? `${modeMeta.emoji} ${modeMeta.label}` : ""}

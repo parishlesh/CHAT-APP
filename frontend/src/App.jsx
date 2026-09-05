@@ -28,7 +28,7 @@ const App = () => {
 
   if (isCheckingAuth && !authUser) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-base-200">
+      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-base-200 px-4">
         <BrandMark size={44} className="text-2xl" />
         <Loader className="size-8 animate-spin text-primary" />
         <p className="text-sm text-base-content/60">Restoring your secure session…</p>
@@ -37,12 +37,12 @@ const App = () => {
   }
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden" data-theme={appliedAppTheme}>
+    <div className="flex h-dvh w-full min-w-0 flex-col overflow-hidden safe-top" data-theme={appliedAppTheme}>
       {authUser && <EncryptionRecoveryBanner />}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {authUser && <Navbar />}
       <div
-        className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto"}`}
+        className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto overscroll-contain"}`}
         data-theme={appliedAppTheme}
       >
         <Routes>
@@ -55,7 +55,11 @@ const App = () => {
         </Routes>
       </div>
       </div>
-      <Toaster />
+      <Toaster
+        position="top-center"
+        containerStyle={{ top: "max(0.75rem, env(safe-area-inset-top))" }}
+        toastOptions={{ className: "!max-w-[calc(100vw-1.5rem)] text-sm" }}
+      />
     </div>
   );
 };

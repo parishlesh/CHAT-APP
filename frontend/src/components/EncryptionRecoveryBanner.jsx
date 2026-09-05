@@ -19,7 +19,7 @@ const EncryptionRecoveryBanner = () => {
   };
 
   return (
-    <div className="shrink-0 border-b border-warning/40 bg-warning/15 px-4 py-3 text-sm">
+    <div className="shrink-0 border-b border-warning/40 bg-warning/15 px-3 py-3 text-sm sm:px-4">
       <p className="font-medium text-warning-content">Messages on this device are locked.</p>
       {canResetEncryption ? (
         <>

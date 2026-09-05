@@ -53,7 +53,7 @@ const Sidebar = () => {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search"
-            className="w-full rounded-lg bg-base-200 py-2 pl-9 pr-3 text-sm outline-none placeholder:text-base-content/50"
+            className="w-full rounded-lg bg-base-200 py-2 pl-9 pr-3 text-base outline-none placeholder:text-base-content/50 sm:text-sm"
             aria-label="Search users by name, username, or email"
           />
         </label>
@@ -102,7 +102,7 @@ const Sidebar = () => {
                   </span>
                 </button>
                 {request && (
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 flex-col gap-1 sm:flex-row">
                     <button type="button" aria-label="Accept" disabled={requestBusy} onClick={() => respondToRequest(request._id, "accept")} className="btn btn-success btn-xs">Accept</button>
                     <button type="button" aria-label="Reject" disabled={requestBusy} onClick={() => respondToRequest(request._id, "reject")} className="btn btn-ghost btn-xs">Reject</button>
                   </div>

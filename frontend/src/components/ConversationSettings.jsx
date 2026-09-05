@@ -13,6 +13,9 @@ import {
 import { requestNotificationPermission } from "../lib/notify";
 import OptionButton from "./OptionButton";
 
+const SHEET =
+  "ui-pop z-30 overflow-y-auto border border-base-300 bg-base-100 py-1 shadow-md max-h-[min(85dvh,32rem)] w-full rounded-t-2xl fixed inset-x-0 bottom-0 safe-bottom sm:absolute sm:inset-auto sm:right-2 sm:top-12 sm:w-72 sm:max-h-[80vh] sm:rounded-lg sm:pb-1";
+
 const Section = ({ title, children }) => (
   <div className="border-t border-base-300 py-2">
     <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">{title}</p>
@@ -23,7 +26,7 @@ const Section = ({ title, children }) => (
 const Row = ({ label, value, onClick, disabled }) => (
   <button type="button" disabled={disabled} className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200 disabled:opacity-50" onClick={onClick}>
     <span>{label}</span>
-    <span className="flex items-center gap-1 text-xs opacity-70">{value}<ChevronRight size={14} /></span>
+    <span className="flex min-w-0 items-center gap-1 text-xs opacity-70"><span className="truncate">{value}</span><ChevronRight size={14} className="shrink-0" /></span>
   </button>
 );
 
@@ -228,7 +231,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   }
 
   return (
-    <div className="ui-pop absolute right-2 top-12 z-30 max-h-[80vh] w-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100 py-1 shadow-md">
+    <div className={SHEET}>
       <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">Conversation settings</p>
       <Section title="🎭 Conversation">
         <Row label="Vibe" value={`${vibe.emoji} ${vibe.label}`} onClick={() => { onClose(); openVibePicker(); }} />
@@ -272,7 +275,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
 };
 
 const Panel = ({ title, onBack, children }) => (
-  <div className="ui-pop absolute right-2 top-12 z-30 max-h-[80vh] w-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100 py-1 shadow-md">
+  <div className={SHEET}>
     <button type="button" className="ui-press px-3 py-2 text-xs opacity-70" onClick={onBack}>Back</button>
     <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">{title}</p>
     {children}

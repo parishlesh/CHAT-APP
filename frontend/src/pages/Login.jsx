@@ -24,10 +24,10 @@ const Login = () => {
   };
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
-      <div className="flex items-center justify-center bg-base-200 p-6">
+    <div className="grid min-h-full lg:min-h-full lg:grid-cols-2">
+      <div className="flex items-center justify-center bg-base-200 px-4 py-8 sm:p-6">
         <div className="card w-full max-w-md bg-base-100 shadow-xl">
-          <div className="card-body">
+          <div className="card-body p-5 sm:p-8">
             <BrandMark size={36} className="mb-1 justify-center text-xl" />
             <h1 className="text-center text-2xl font-semibold">Welcome back</h1>
             <p className="mb-2 text-center text-sm text-base-content/60">Sign in to continue your conversations</p>
@@ -40,7 +40,7 @@ const Login = () => {
                   autoComplete="username"
                   value={formData.email}
                   onChange={handleChange}
-                  className="input input-bordered mt-1 w-full"
+                  className="input input-bordered mt-1 w-full text-base"
                   placeholder="Enter your email or username"
                   required
                 />
@@ -53,7 +53,7 @@ const Login = () => {
                   autoComplete="current-password"
                   value={formData.password}
                   onChange={handleChange}
-                  className="input input-bordered mt-1 w-full pr-10"
+                  className="input input-bordered mt-1 w-full pr-10 text-base"
                   placeholder="Enter your password"
                   required
                 />

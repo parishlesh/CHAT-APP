@@ -61,23 +61,57 @@ const Signup = () => {
     reader.readAsDataURL(file);
   };
 
-  return <div className="flex min-h-screen items-center justify-center bg-base-200 p-4">
-    <div className="card w-full max-w-md bg-base-100 shadow-xl"><div className="card-body">
-      <BrandMark size={32} className="mb-1 text-lg" />
-      <p className="text-sm text-base-content/60">Step {step + 1} of {steps.length}</p>
-      <progress className="progress progress-primary w-full" value={step + 1} max={steps.length} />
-      <h1 className="card-title text-2xl mt-3">{current.label}</h1>
-      <div className="py-3">
-        {current.type === "file" ? <><input type="file" accept="image/*" onChange={onFile} className="file-input file-input-bordered w-full" />{formData.profilePic && <img src={formData.profilePic} alt="Preview" className="w-20 h-20 rounded-full object-cover mt-3" />}</> : current.type === "textarea" ? <textarea value={formData.about} onChange={(e) => update(e.target.value)} placeholder={current.placeholder} className="textarea textarea-bordered w-full" maxLength="250" /> : <div className="relative"><input type={current.key === "password" && showPassword ? "text" : current.type} name={current.key} autoComplete={current.key === "password" ? "new-password" : current.key === "email" ? "email" : current.key === "username" ? "username" : "on"} value={formData[current.key]} onChange={(e) => update(e.target.value)} placeholder={current.placeholder} className="input input-bordered w-full" autoFocus />{current.key === "password" && <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>}</div>}
-        {current.key === "username" && <p className={`text-sm mt-2 ${usernameStatus === "Available" ? "text-success" : "text-error"}`}>{usernameStatus}</p>}
+  return (
+    <div className="flex min-h-full items-center justify-center bg-base-200 px-4 py-8 sm:p-4">
+      <div className="card w-full max-w-md bg-base-100 shadow-xl">
+        <div className="card-body p-5 sm:p-8">
+          <BrandMark size={32} className="mb-1 text-lg" />
+          <p className="text-sm text-base-content/60">Step {step + 1} of {steps.length}</p>
+          <progress className="progress progress-primary w-full" value={step + 1} max={steps.length} />
+          <h1 className="card-title mt-3 text-xl sm:text-2xl">{current.label}</h1>
+          <div className="py-3">
+            {current.type === "file" ? (
+              <>
+                <input type="file" accept="image/*" onChange={onFile} className="file-input file-input-bordered w-full max-w-full" />
+                {formData.profilePic && <img src={formData.profilePic} alt="Preview" className="mt-3 h-20 w-20 rounded-full object-cover" />}
+              </>
+            ) : current.type === "textarea" ? (
+              <textarea value={formData.about} onChange={(e) => update(e.target.value)} placeholder={current.placeholder} className="textarea textarea-bordered w-full text-base" maxLength="250" />
+            ) : (
+              <div className="relative">
+                <input
+                  type={current.key === "password" && showPassword ? "text" : current.type}
+                  name={current.key}
+                  autoComplete={current.key === "password" ? "new-password" : current.key === "email" ? "email" : current.key === "username" ? "username" : "on"}
+                  value={formData[current.key]}
+                  onChange={(e) => update(e.target.value)}
+                  placeholder={current.placeholder}
+                  className="input input-bordered w-full pr-10 text-base"
+                  autoFocus
+                />
+                {current.key === "password" && (
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-3" aria-label={showPassword ? "Hide password" : "Show password"}>
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                )}
+              </div>
+            )}
+            {current.key === "username" && <p className={`mt-2 text-sm ${usernameStatus === "Available" ? "text-success" : "text-error"}`}>{usernameStatus}</p>}
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {step ? <button type="button" onClick={() => setStep((value) => value - 1)} className="btn btn-ghost w-full sm:w-auto"><ArrowLeft size={18}/> Back</button> : <span className="hidden sm:block" />}
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              {current.optional && <button type="button" onClick={next} className="btn btn-ghost w-full sm:w-auto"><SkipForward size={18}/> Skip</button>}
+              <button type="button" onClick={next} disabled={isSigningUp} className="btn btn-primary w-full sm:w-auto">
+                {step === steps.length - 1 ? <><Check size={18}/> Create account</> : <>Continue <ArrowRight size={18}/></>}
+              </button>
+            </div>
+          </div>
+          <p className="mt-4 text-center text-sm">Already have an account? <Link to="/login" className="link link-primary">Log in</Link></p>
+        </div>
       </div>
-      <div className="flex gap-2 justify-between">
-        {step ? <button onClick={() => setStep((value) => value - 1)} className="btn btn-ghost"><ArrowLeft size={18}/> Back</button> : <span />}
-        <div className="flex gap-2">{current.optional && <button onClick={next} className="btn btn-ghost"><SkipForward size={18}/> Skip</button>}<button onClick={next} disabled={isSigningUp} className="btn btn-primary">{step === steps.length - 1 ? <><Check size={18}/> Create account</> : <>Continue <ArrowRight size={18}/></>}</button></div>
-      </div>
-      <p className="text-center text-sm mt-4">Already have an account? <Link to="/login" className="link link-primary">Log in</Link></p>
-    </div></div>
-  </div>;
+    </div>
+  );
 };
 
 export default Signup;
