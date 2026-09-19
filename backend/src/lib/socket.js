@@ -1,11 +1,13 @@
 import { Server } from "socket.io";
+import { createAdapter } from "@socket.io/redis-adapter";
 import http from "http";
 import express from "express";
 import jwt from "jsonwebtoken";
 import Conversation from "../models/conversation-model.js";
 import User from "../models/user-model.js";
 import { isOriginAllowed } from "./origins.js";
-import { addUserSocket, getOnlineUserIds, getReceiverSocketId, getSocketIds, removeUserSocket } from "./presence.js";
+import { addUserSocket, getOnlineUserIds, getReceiverSocketId, removeUserSocket } from "./presence.js";
+import { createRedisSubscriber, getRedis } from "./redis.js";
 import { logger } from "./logger.js";
 import { isObjectId } from "./validate.js";
 
@@ -26,6 +28,8 @@ const io = new Server(server, {
   pingInterval: 25000,
   transports: ["polling", "websocket"],
 });
+
+const userRoom = (userId) => `user:${String(userId)}`;
 
 function parseCookies(header = "") {
   return Object.fromEntries(
@@ -52,22 +56,33 @@ io.use(async (socket, next) => {
   }
 });
 
+let redisAdapterAttached = false;
+
+export async function attachRedisAdapter() {
+  if (redisAdapterAttached) return;
+  const pubClient = getRedis();
+  if (!pubClient) return;
+  const subClient = await createRedisSubscriber();
+  if (!subClient) return;
+  io.adapter(createAdapter(pubClient, subClient));
+  redisAdapterAttached = true;
+  logger.info("Socket.IO Redis adapter attached");
+}
+
 export function disconnectUserSockets(userId) {
-  getSocketIds(userId).forEach((socketId) => {
-    const connected = io.sockets.sockets.get(socketId);
-    if (connected) connected.disconnect(true);
-  });
+  io.in(userRoom(userId)).disconnectSockets(true);
 }
 
 export function emitToUser(userId, event, payload) {
-  getSocketIds(userId).forEach((socketId) => io.to(socketId).emit(event, payload));
+  io.to(userRoom(userId)).emit(event, payload);
 }
 
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   const userId = socket.userId;
-  addUserSocket(userId, socket.id);
+  socket.join(userRoom(userId));
+  await addUserSocket(userId, socket.id);
   logger.debug("socket connected", socket.id);
-  io.emit("getOnlineUsers", getOnlineUserIds());
+  io.emit("getOnlineUsers", await getOnlineUserIds());
 
   const relayTyping = async (event, payload = {}) => {
     if (!userId || !payload.to || !isObjectId(payload.to)) return;
@@ -85,12 +100,11 @@ io.on("connection", (socket) => {
     socket.data.typingTarget = null;
   });
 
-  socket.on("disconnect", () => {
-    const { wentOffline } = removeUserSocket(userId, socket.id);
+  socket.on("disconnect", async () => {
+    await removeUserSocket(userId, socket.id);
     const target = socket.data.typingTarget;
     if (target) emitToUser(target.to, "stopTyping", { from: userId, conversationId: target.conversationId });
-    if (wentOffline) io.emit("getOnlineUsers", getOnlineUserIds());
-    else io.emit("getOnlineUsers", getOnlineUserIds());
+    io.emit("getOnlineUsers", await getOnlineUserIds());
     logger.debug("socket disconnected", socket.id);
   });
 });

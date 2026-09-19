@@ -2,6 +2,21 @@
 
 Encrypted chat with conversation vibes, moods, and live messaging.
 
+## Docker
+
+Copy `backend/.env.example` to `backend/.env` and set at least `JWT_SECRET` and `OTP_SECRET`. Cloudinary and SMTP values are optional for a local smoke test.
+
+```bash
+docker compose up --build
+```
+
+- App: http://localhost:5173
+- API / Socket.IO: proxied from the frontend to the backend container
+- MongoDB: `mongodb://localhost:27017/vibelink`
+- Redis: internal `redis://redis:6379` — Socket.IO adapter, online presence, and rate limits
+
+The frontend container serves the Vite production build and proxies `/api` and `/socket.io` to `backend`, so auth cookies stay same-origin.
+
 ## Features
 
 - Cookie/JWT authentication, profiles, online presence, image messages, and conversation requests.
