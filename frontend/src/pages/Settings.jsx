@@ -17,7 +17,7 @@ const Settings = () => {
 
   return (
     <ScrollContainer className="w-full h-full overflow-hidden">
-      <div className="container mx-auto max-w-5xl px-4 py-6">
+      <div className="container mx-auto max-w-5xl px-4 py-6 safe-bottom">
         <div className="space-y-6">
           <Link to="/" className="btn btn-ghost btn-sm w-fit md:hidden" aria-label="Back to messages">
             <ArrowLeft size={16} /> Messages
@@ -29,7 +29,7 @@ const Settings = () => {
             <p className="text-sm text-base-content/70">Preview a look for the rest of the app, then apply it. Conversations follow your Mood, not this setting.</p>
           </div>
 
-          <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 md:grid-cols-8">
             {THEMES.map((t) => (
               <button
                 key={t}
@@ -56,15 +56,15 @@ const Settings = () => {
 
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-lg font-semibold">Preview</h3>
-            <button type="button" className="btn btn-primary btn-sm" disabled={!canApply} onClick={applyAppTheme}>
+            <button type="button" className="btn btn-primary btn-sm shrink-0" disabled={!canApply} onClick={applyAppTheme}>
               Apply
             </button>
           </div>
-          <div className="rounded-xl border border-base-300 overflow-hidden bg-base-100 shadow-lg">
-            <div className="p-4 bg-base-200">
-              <div className="max-w-lg mx-auto overflow-hidden rounded-xl border border-base-300 shadow-sm" data-theme={previewAppTheme}>
-                <div className="flex h-56 bg-base-100">
-                  <div className="flex w-12 shrink-0 flex-col items-center gap-3 border-r border-base-300 bg-base-100 py-3">
+          <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-lg">
+            <div className="bg-base-200 p-3 sm:p-4">
+              <div className="mx-auto max-w-lg overflow-hidden rounded-xl border border-base-300 shadow-sm" data-theme={previewAppTheme}>
+                <div className="flex h-48 bg-base-100 sm:h-56">
+                  <div className="hidden w-12 shrink-0 flex-col items-center gap-3 border-r border-base-300 bg-base-100 py-3 sm:flex">
                     <MessageSquare size={16} className="opacity-80" />
                     <User size={16} className="opacity-40" />
                     <SettingsIcon size={16} className="opacity-40" />

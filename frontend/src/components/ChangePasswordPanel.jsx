@@ -89,7 +89,7 @@ const ChangePasswordPanel = () => {
           <p className="text-sm text-base-content/70">Enter the 6-digit code sent to your registered email.</p>
           {import.meta.env.DEV && <p className="text-xs text-base-content/50">Development code is 123456.</p>}
           <input
-            className="input input-bordered w-full tracking-[0.4em]"
+            className="input input-bordered w-full text-base tracking-[0.4em]"
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={6}
@@ -98,7 +98,7 @@ const ChangePasswordPanel = () => {
             placeholder="------"
             required
           />
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>{busy ? "Verifying…" : "Verify OTP"}</button>
             <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={sendOtp}>Resend</button>
           </div>
@@ -118,7 +118,7 @@ const ChangePasswordPanel = () => {
             <label className="block text-sm font-medium">New password</label>
             <input
               type={showPassword ? "text" : "password"}
-              className="input input-bordered mt-1 w-full pr-10"
+              className="input input-bordered mt-1 w-full pr-10 text-base"
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -133,7 +133,7 @@ const ChangePasswordPanel = () => {
             <label className="block text-sm font-medium">Confirm new password</label>
             <input
               type={showPassword ? "text" : "password"}
-              className="input input-bordered mt-1 w-full"
+              className="input input-bordered mt-1 w-full text-base"
               autoComplete="new-password"
               value={confirm}
               onChange={(event) => setConfirm(event.target.value)}

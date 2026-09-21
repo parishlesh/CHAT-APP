@@ -19,7 +19,7 @@ const VibePicker = () => {
     <>
       <button type="button" className="fixed inset-0 z-20 cursor-default" aria-label="Close vibe picker" onClick={closeVibePicker} />
       <div
-        className="ui-pop absolute right-2 top-14 z-30 w-56 max-h-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100 py-1 shadow-md"
+        className="ui-pop absolute left-2 right-2 top-14 z-30 max-h-72 overflow-y-auto rounded-lg border border-base-300 bg-base-100 py-1 shadow-md sm:left-auto sm:right-2 sm:w-56"
         role="dialog"
         aria-labelledby="vibe-picker-title"
       >

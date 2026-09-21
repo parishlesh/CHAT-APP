@@ -103,7 +103,7 @@ const ChatContainer = () => {
       <VibePrompt />
       <MoodBanner />
       {dueMeta && (
-        <div className="flex items-center justify-between gap-2 border-b border-base-300 px-3 py-1.5 text-xs">
+        <div className="flex min-h-0 items-center justify-between gap-2 border-b border-base-300 px-3 py-1.5 text-xs">
           <span>{dueMeta.emoji} {dueMeta.prompt}</span>
           <button type="button" className="opacity-70" onClick={() => upsertRitual({ key: dueRitual.key, recurrence: dueRitual.recurrence, prompted: true })}>Dismiss</button>
         </div>
@@ -116,7 +116,7 @@ const ChatContainer = () => {
             value={messageSearch}
             onChange={(event) => searchMessages(event.target.value)}
             placeholder="Search messages..."
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+            className="min-w-0 flex-1 bg-transparent text-base outline-none sm:text-sm"
             aria-label="Search messages in this conversation"
           />
           {messageSearch && (

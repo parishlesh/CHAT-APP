@@ -4,7 +4,7 @@ const RequestComposer = () => {
   const { openConversationId, requestBusy, respondToRequest } = useChatStore();
 
   return (
-    <div className="shrink-0 border-t border-base-300 bg-base-100 px-4 py-4 text-center">
+    <div className="shrink-0 border-t border-base-300 bg-base-100 px-4 py-4 text-center safe-bottom">
       <p className="text-sm font-medium">Message request</p>
       <p className="mt-1 text-xs text-base-content/60">You can read this conversation, but you must accept the request before you can reply.</p>
       <div className="mt-4 flex justify-center gap-2">

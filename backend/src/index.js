@@ -6,11 +6,12 @@ import cors from "cors";
 import authRoutes from "./routes/auth-route.js";
 import connectDB from "./lib/db.js";
 import messageRoute from "./routes/message-route.js";
-import { app, server } from "./lib/socket.js";
+import { app, attachRedisAdapter, server } from "./lib/socket.js";
 import { isOriginAllowed } from "./lib/origins.js";
 import { apiLimiter } from "./middleware/rate-limit.js";
 import { errorHandler, notFound } from "./middleware/error-handler.js";
 import { logger } from "./lib/logger.js";
+import { connectRedis, pingRedis } from "./lib/redis.js";
 
 dotenv.config();
 
@@ -37,7 +38,9 @@ app.use(express.urlencoded({ limit: "12mb", extended: true }));
 app.use(cookieParser());
 app.use("/api", apiLimiter);
 
-app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
+app.get("/health", async (_req, res) => {
+  res.status(200).json({ ok: true, redis: await pingRedis() });
+});
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoute);
 app.use(notFound);
@@ -45,7 +48,16 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5001;
 
-server.listen(PORT, () => {
-  logger.info(`Server is running at port: ${PORT}`);
-  connectDB();
+const start = async () => {
+  await connectRedis();
+  await attachRedisAdapter();
+  server.listen(PORT, () => {
+    logger.info(`Server is running at port: ${PORT}`);
+    connectDB();
+  });
+};
+
+start().catch((error) => {
+  logger.error("Failed to start server:", error.message);
+  process.exit(1);
 });
