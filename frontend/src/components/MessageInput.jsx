@@ -4,6 +4,7 @@ import { Image as ImageIcon, Send, Timer, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../store/useAuth";
 import { isEncryptedText } from "../lib/encryption";
+import { canComposeInConversation } from "../lib/conversationAccess";
 
 const MessageInput = () => {
   const [text, setText] = useState("");
@@ -121,8 +122,7 @@ const MessageInput = () => {
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    const canCompose = !conversationStatus || conversationStatus === "accepted" || String(conversationInitiatedBy) === String(authUser?._id);
-    if (!canCompose) return;
+    if (!canComposeInConversation(conversationStatus, conversationInitiatedBy, authUser?._id)) return;
     if (editingMessage) {
       if (!text.trim() || sending) return;
       await editMessage(editingMessage._id, text.trim());
