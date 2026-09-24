@@ -12,7 +12,7 @@ export const assertCanSendMessage = (conversation, senderId) => {
   if (conversation.status === "pending" && initiator !== sender) {
     throw new AppError(403, "Accept this conversation request before sending a message.");
   }
-  if (conversation.status === "declined" && initiator !== sender) {
-    throw new AppError(403, "This conversation request was rejected.");
+  if (conversation.status === "declined" && initiator === sender) {
+    throw new AppError(403, "This conversation request was rejected. You can't message this user again until they message you first.");
   }
 };

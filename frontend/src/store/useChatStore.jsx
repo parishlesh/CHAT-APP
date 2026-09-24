@@ -4,6 +4,7 @@ import { axiosInstance } from "../lib/axios";
 import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKey, toPublicJwk, waitForEncryptionInit, cacheEncryptedMessages, readCachedMessages, getEncryptionStatus, isEncryptionReady, getEncryptionFailure } from "../lib/encryption";
 import { notifyIncomingMessage } from "../lib/notify";
 import { getVibeMeta } from "../config/conversationVibes";
+import { canComposeInConversation } from "../lib/conversationAccess";
 import { useAuth } from "./useAuth";
 import { useConversationThemeStore } from "./useConversationThemeStore";
 
@@ -116,8 +117,7 @@ const asPendingMessage = (message) => {
 const composerAllowed = (state) => {
   const me = useAuth.getState().authUser?._id;
   const { conversationStatus, conversationInitiatedBy } = state;
-  if (!conversationStatus || conversationStatus === "accepted") return true;
-  return idsEqual(conversationInitiatedBy, me);
+  return canComposeInConversation(conversationStatus, conversationInitiatedBy, me);
 };
 
 const participantNotMe = (conversation, myId) =>
@@ -454,6 +454,7 @@ export const useChatStore = create((set, get) => ({
       const mine = idsEqual(message.senderId, me?._id);
       const inView = selected && (idsEqual(message.senderId, selected._id) || (mine && idsEqual(message.receiverId, selected._id)));
       if (inView) {
+        if (!mine) socket.emit("markSeen", { peerId: message.senderId });
         const selectedId = selected._id;
         const pendingIndex = get().messages.findIndex((item) => item.pending && idsEqual(item.senderId, message.senderId));
         if (pendingIndex < 0) {

@@ -31,7 +31,7 @@ const ChatContainer = () => {
   const conversationTheme = themeForMood(authUser?.mood);
   const peerFingerprint = peerKeyFingerprint(selectedUser?.encryptionPublicKey);
   const incomingPending = conversationStatus === "pending" && conversationInitiatedBy && String(conversationInitiatedBy) !== String(authUser?._id);
-  const incomingDeclined = conversationStatus === "declined" && conversationInitiatedBy && String(conversationInitiatedBy) !== String(authUser?._id);
+  const blockedAsDeclinedInitiator = conversationStatus === "declined" && conversationInitiatedBy && String(conversationInitiatedBy) === String(authUser?._id);
   const endRef = useRef(null);
   const scrollerRef = useRef(null);
   const stickToBottom = useRef(true);
@@ -172,9 +172,9 @@ const ChatContainer = () => {
       )}
       {incomingPending ? (
         <RequestComposer />
-      ) : incomingDeclined ? (
+      ) : blockedAsDeclinedInitiator ? (
         <div className="shrink-0 border-t border-base-300 px-4 py-3 text-center text-xs text-base-content/60">
-          You declined this conversation request.
+          Your conversation request was declined. You can&apos;t send more messages until they message you first.
         </div>
       ) : (
         <MessageInput />

@@ -7,6 +7,7 @@ import { useChatStore } from "../store/useChatStore";
 import { formatMessageTime } from "../lib/time";
 import { MEMORY_TYPES, REACTIONS, bubbleClass } from "../config/conversationExtras";
 import { isEncryptedText } from "../lib/encryption";
+import { canComposeInConversation } from "../lib/conversationAccess";
 
 const MessageBubble = ({ message }) => {
   const { authUser } = useAuth();
@@ -22,7 +23,7 @@ const MessageBubble = ({ message }) => {
   const pressTimer = useRef(null);
   const lastMineReaction = useRef(undefined);
   const mine = String(message.senderId) === String(authUser._id);
-  const canCompose = !conversationStatus || conversationStatus === "accepted" || String(conversationInitiatedBy) === String(authUser._id);
+  const canCompose = canComposeInConversation(conversationStatus, conversationInitiatedBy, authUser._id);
   const decrypting = message.decryptStatus === "pending" || isEncryptedText(message.displayText);
   const decryptFailed = message.decryptStatus === "failed";
   const isSystem = message.kind === "system" || Boolean(message.systemEvent);

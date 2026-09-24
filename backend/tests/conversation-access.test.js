@@ -14,8 +14,12 @@ test("initiator can send while a request is pending", () => {
   assert.doesNotThrow(() => assertCanSendMessage({ status: "pending", initiatedBy: initiator }, initiator));
 });
 
-test("recipient cannot send after a request is declined", () => {
-  assert.throws(() => assertCanSendMessage({ status: "declined", initiatedBy: initiator }, recipient), AppError);
+test("initiator cannot send again after a request is declined", () => {
+  assert.throws(() => assertCanSendMessage({ status: "declined", initiatedBy: initiator }, initiator), AppError);
+});
+
+test("recipient can message back after declining, restarting the request themselves", () => {
+  assert.doesNotThrow(() => assertCanSendMessage({ status: "declined", initiatedBy: initiator }, recipient));
 });
 
 test("accepted conversations allow either participant to send", () => {

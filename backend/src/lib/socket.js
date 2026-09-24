@@ -4,6 +4,7 @@ import http from "http";
 import express from "express";
 import jwt from "jsonwebtoken";
 import Conversation from "../models/conversation-model.js";
+import Message from "../models/message-model.js";
 import User from "../models/user-model.js";
 import { isOriginAllowed } from "./origins.js";
 import { addUserSocket, getOnlineUserIds, getReceiverSocketId, removeUserSocket } from "./presence.js";
@@ -98,6 +99,24 @@ io.on("connection", async (socket) => {
   socket.on("stopTyping", (payload) => {
     relayTyping("stopTyping", payload);
     socket.data.typingTarget = null;
+  });
+
+  socket.on("markSeen", async (payload = {}) => {
+    const peerId = payload.peerId;
+    if (!peerId || !isObjectId(peerId)) return;
+    const conversation = await Conversation.findOne({ participants: { $all: [userId, peerId], $size: 2 } });
+    if (!conversation) return;
+    const unseen = await Message.find({
+      conversationId: conversation._id,
+      senderId: peerId,
+      receiverId: userId,
+      seen: false,
+      deleted: false,
+    }).select("_id");
+    if (!unseen.length) return;
+    const messageIds = unseen.map((message) => message._id.toString());
+    await Message.updateMany({ _id: { $in: messageIds } }, { $set: { seen: true } });
+    emitToUser(peerId, "messagesSeen", { conversationId: conversation._id, messageIds });
   });
 
   socket.on("disconnect", async () => {
