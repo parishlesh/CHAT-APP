@@ -66,6 +66,10 @@ const userSchema = new mongoose.Schema(
     },
     moodUpdatedAt: Date,
 
+    lastSeen: { type: Date, default: null },
+
+    blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
     availability: {
       key: { type: String, enum: ["quiet", "busy", "away", "reply-later", ""] , default: "" },
       until: { type: Date, default: null },

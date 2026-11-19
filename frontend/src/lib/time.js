@@ -28,6 +28,23 @@ export const formatConversationDayLabel = (dateString) => {
   return date.toLocaleDateString("en-GB", options);
 };
 
+export const formatLastSeen = (dateString) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const minutes = Math.floor((now - date) / 60000);
+  if (minutes < 1) return "last seen just now";
+  if (minutes < 60) return `last seen ${minutes} min ago`;
+  if (date.toDateString() === now.toDateString()) return `last seen today at ${formatMessageTime(dateString)}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return `last seen yesterday at ${formatMessageTime(dateString)}`;
+  const options = { day: "numeric", month: "short" };
+  if (date.getFullYear() !== now.getFullYear()) options.year = "numeric";
+  return `last seen ${date.toLocaleDateString("en-GB", options)}`;
+};
+
 export const formatChatListTime = (dateString) => {
   if (!dateString) return "";
   const date = new Date(dateString);

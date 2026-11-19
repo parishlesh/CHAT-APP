@@ -28,13 +28,17 @@ export const AVAILABILITY_OPTIONS = [
 ];
 
 export const REACTIONS = [
-  { key: "feel", label: "I feel this", emoji: "❤️" },
+  { key: "feel", label: "Love", emoji: "❤️" },
+  { key: "laugh", label: "Haha", emoji: "😂" },
+  { key: "wow", label: "Wow", emoji: "😮" },
+  { key: "sad", label: "Sad", emoji: "😢" },
+  { key: "thanks", label: "Thank you", emoji: "🙏" },
+  { key: "got-it", label: "Got it", emoji: "👍" },
+  { key: "fire", label: "Fire", emoji: "🔥" },
+  { key: "party", label: "Party", emoji: "🎉" },
   { key: "here", label: "I'm here", emoji: "🫂" },
   { key: "more", label: "Tell me more", emoji: "👀" },
-  { key: "laugh", label: "Made me laugh", emoji: "😂" },
   { key: "think", label: "Let me think", emoji: "🧠" },
-  { key: "got-it", label: "Got it", emoji: "👍" },
-  { key: "thanks", label: "Thank you", emoji: "🙏" },
 ];
 
 export const MEMORY_TYPES = [
@@ -53,11 +57,17 @@ export const RITUALS = [
   { key: "weekly", label: "Weekly Question", prompt: "What should we do together next weekend?", emoji: "💕" },
 ];
 
+// Shared with the other person. Keep in sync with backend catalog WALLPAPERS.
 export const WALLPAPERS = [
   { key: "default", label: "Default" },
   { key: "minimal", label: "Minimal" },
   { key: "soft", label: "Soft" },
   { key: "dark", label: "Dark" },
+  { key: "sunset", label: "Sunset" },
+  { key: "ocean", label: "Ocean" },
+  { key: "aurora", label: "Aurora" },
+  { key: "dots", label: "Dots" },
+  { key: "grid", label: "Grid" },
 ];
 
 export const BUBBLE_STYLES = [
@@ -73,6 +83,11 @@ export const wallpaperClass = (key) => ({
   minimal: "bg-base-200",
   soft: "bg-base-200/80",
   dark: "bg-neutral text-neutral-content",
+  sunset: "vl-wall-sunset",
+  ocean: "vl-wall-ocean",
+  aurora: "vl-wall-aurora",
+  dots: "vl-wall-dots",
+  grid: "vl-wall-grid",
 }[key] || "");
 
 export const bubbleClass = (key, mine) => {

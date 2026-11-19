@@ -8,10 +8,16 @@ import { logger } from "../lib/logger.js";
 import { requireObjectId, sanitizeQuery, validateExpiresAt, validateImageDataUrl, validateMessageText } from "../lib/validate.js";
 
 import { ALLOWED_MOODS, ALLOWED_VIBES, REACTION_KEYS } from "../lib/catalog.js";
-import { REQUEST_DECLINED_EVENT, REQUEST_DECLINED_TEXT, assertCanSendMessage, initiatorId } from "../lib/conversation-access.js";
+import { REQUEST_DECLINED_EVENT, REQUEST_DECLINED_TEXT, assertCanSendMessage, initiatorId, isRejectedParty, reachablePeerIds, statusAfterSend } from "../lib/conversation-access.js";
 import { describeEncryptedText } from "../lib/envelope.js";
+import { createUploadSignature, destroyAttachment, validateAttachment } from "../lib/media.js";
+import { MAX_PINNED_MESSAGES } from "../lib/catalog.js";
 
-const publicUser = "fullName username email profilePic about encryptionPublicKey mood moodUpdatedAt availability";
+const publicUser = "fullName username email profilePic about encryptionPublicKey mood moodUpdatedAt availability lastSeen";
+const replyFields = "senderId text image attachment deleted";
+const pinFields = "senderId text image attachment deleted deletedFor createdAt";
+
+const hasBlocked = (user, otherId) => Boolean(user?.blockedUsers?.some((id) => String(id) === String(otherId)));
 const pairQuery = (firstId, secondId) => ({ participants: { $all: [firstId, secondId], $size: 2 } });
 
 const otherParticipant = (conversation, myId) =>
@@ -44,26 +50,21 @@ const moodPayload = async (conversation, myId) => {
     User.findById(myId).select("mood moodUpdatedAt availability"),
     otherId ? User.findById(otherId).select("mood moodUpdatedAt availability") : null,
   ]);
+  // Someone whose request was rejected doesn't get to see the other person's mood or status.
+  const hidden = isRejectedParty(conversation, myId);
   return {
     mine: serializeUserMood(me) || moodFromConversationMap(conversation, myId),
-    theirs: serializeUserMood(other) || moodFromConversationMap(conversation, otherId),
+    theirs: hidden ? null : (serializeUserMood(other) || moodFromConversationMap(conversation, otherId)),
     conversationId: conversation?._id || null,
     muted: conversation ? isMuted(conversation, myId) : false,
     mineAvailability: me?.availability || null,
-    theirAvailability: other?.availability || null,
+    theirAvailability: hidden ? null : (other?.availability || null),
   };
 };
 
 const emitMoodToPeers = async (userId, payload) => {
-  const conversations = await Conversation.find({ participants: userId }).select("participants");
-  const peerIds = new Set();
-  conversations.forEach((conversation) => {
-    conversation.participants.forEach((participant) => {
-      const id = participantId(participant);
-      if (id !== String(userId)) peerIds.add(id);
-    });
-  });
-  peerIds.forEach((peerId) => emitToUser(peerId, "conversationMoodUpdated", payload));
+  const conversations = await Conversation.find({ participants: userId }).select("participants status initiatedBy");
+  reachablePeerIds(conversations, userId).forEach((peerId) => emitToUser(peerId, "conversationMoodUpdated", payload));
 };
 
 const findPairConversation = async (myId, otherUserId) => {
@@ -94,7 +95,7 @@ export const getMessages = asyncHandler(async (req, res) => {
   if (!conversation) return res.status(200).json({ messages: [], hasMore: false });
 
   const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
-  const filter = { conversationId: conversation._id };
+  const filter = { conversationId: conversation._id, deletedFor: { $ne: req.user._id } };
   if (req.query.before) {
     requireObjectId(req.query.before, "cursor");
     const cursor = await Message.findOne({ _id: req.query.before, conversationId: conversation._id }).select("createdAt");
@@ -122,12 +123,16 @@ export const getMessages = asyncHandler(async (req, res) => {
   }
 
   const page = await Message.find(filter)
-    .populate("replyTo", "senderId text image deleted")
+    .populate("replyTo", replyFields)
     .sort({ createdAt: -1 })
     .limit(limit + 1);
   const hasMore = page.length > limit;
   const messages = page.slice(0, limit).reverse();
-  res.status(200).json({ messages, hasMore });
+  res.status(200).json({
+    messages,
+    hasMore,
+    conversation: { _id: conversation._id, status: conversation.status, initiatedBy: initiatorId(conversation) },
+  });
 });
 
 export const searchConversationMessages = asyncHandler(async (req, res) => {
@@ -146,6 +151,7 @@ export const searchConversationMessages = asyncHandler(async (req, res) => {
 export const sendMessage = asyncHandler(async (req, res) => {
   const text = validateMessageText(req.body.text || "");
   const image = validateImageDataUrl(req.body.image);
+  let attachment = validateAttachment(req.body.attachment, { userId: req.user._id });
   const expiry = validateExpiresAt(req.body.expiresAt);
   const senderId = req.user._id;
   const receiverId = requireObjectId(req.params.id, "user id");
@@ -158,11 +164,37 @@ export const sendMessage = asyncHandler(async (req, res) => {
     ciphertextLength: text.length,
     hasImage: Boolean(image),
   });
-  if (!text && !image) throw new AppError(400, "Message text or image is required.");
   if (senderId.toString() === receiverId) throw new AppError(400, "You cannot message yourself.");
-  if (!(await User.exists({ _id: receiverId }))) throw new AppError(404, "User not found.");
+  const receiver = await User.findById(receiverId).select("blockedUsers");
+  if (!receiver) throw new AppError(404, "User not found.");
+  if (hasBlocked(req.user, receiverId)) throw new AppError(403, "You blocked this contact. Unblock them to send a message.");
+  // Don't reveal the block to the sender; just refuse delivery.
+  if (hasBlocked(receiver, senderId)) throw new AppError(403, "This message couldn't be delivered.");
 
-  let imageUrl = "";
+  // Forwarding reuses the original media server-side, after checking the forwarder could see it.
+  let forwarded = false;
+  let forwardedImage = "";
+  if (req.body.forwardOf) {
+    requireObjectId(req.body.forwardOf, "forwarded message id");
+    const original = await Message.findOne({
+      _id: req.body.forwardOf,
+      $or: [{ senderId }, { receiverId: senderId }],
+      deleted: false,
+      deletedFor: { $ne: senderId },
+      kind: "user",
+    }).select("attachment image");
+    if (!original) throw new AppError(404, "Message to forward wasn't found.");
+    attachment = original.attachment?.url ? original.attachment.toObject() : null;
+    forwarded = true;
+    if (!attachment && original.image) forwardedImage = original.image;
+  }
+  if (!text && !image && !attachment && !forwardedImage) throw new AppError(400, "Message text or attachment is required.");
+
+  let conversation = await Conversation.findOne(pairQuery(senderId, receiverId));
+  // Check access before uploading, so blocked senders can't push images to Cloudinary.
+  assertCanSendMessage(conversation, senderId);
+
+  let imageUrl = forwardedImage;
   if (image) {
     try {
       const upload = await cloudinary.uploader.upload(image, { folder: "chat-images", resource_type: "image" });
@@ -173,17 +205,15 @@ export const sendMessage = asyncHandler(async (req, res) => {
     }
   }
 
-  let conversation = await Conversation.findOne(pairQuery(senderId, receiverId));
-  assertCanSendMessage(conversation, senderId);
-  let createdRequest = false;
+  const transition = statusAfterSend(conversation, senderId);
+  const createdRequest = Boolean(transition?.createdRequest);
+  const reopened = Boolean(transition?.reopened);
   if (!conversation) {
     conversation = await Conversation.create({ participants: [senderId, receiverId], initiatedBy: senderId, status: "pending" });
-    createdRequest = true;
-  } else if (conversation.status === "declined") {
-    conversation.status = "pending";
-    conversation.initiatedBy = senderId;
-    conversation.acceptedAt = undefined;
-    createdRequest = true;
+  } else if (reopened) {
+    // The person who rejected the request chose to talk again: reopen for both sides.
+    conversation.status = "accepted";
+    conversation.acceptedAt = new Date();
   }
 
   let replyToId = null;
@@ -200,6 +230,8 @@ export const sendMessage = asyncHandler(async (req, res) => {
     receiverId,
     text,
     image: imageUrl,
+    attachment,
+    forwarded,
     expiresAt: expiry,
     replyTo: replyToId,
     encryptionVersion: envelope.encryptionVersion,
@@ -207,7 +239,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
   });
   conversation.lastMessage = message._id;
   await conversation.save();
-  const populated = await Message.findById(message._id).populate("replyTo", "senderId text image deleted");
+  const populated = await Message.findById(message._id).populate("replyTo", replyFields);
   logger.info("[CHAT MESSAGE] persistence succeeded", {
     messageId: String(populated._id),
     conversationId: String(conversation._id),
@@ -219,6 +251,14 @@ export const sendMessage = asyncHandler(async (req, res) => {
 
   emitToUser(receiverId, "newMessage", populated);
   emitToUser(senderId, "newMessage", populated);
+  if (reopened) {
+    const updated = await Conversation.findById(conversation._id)
+      .populate("participants", publicUser)
+      .populate("initiatedBy", publicUser)
+      .populate("lastMessage");
+    emitToUser(receiverId, "conversationUpdated", updated);
+    emitToUser(senderId, "conversationUpdated", updated);
+  }
   if (createdRequest) {
     const request = await Conversation.findById(conversation._id)
       .populate("initiatedBy", publicUser)
@@ -239,6 +279,8 @@ const ownedMessage = async (req) => {
 export const editMessage = asyncHandler(async (req, res) => {
   const message = await ownedMessage(req);
   if (message.deleted) throw new AppError(400, "Deleted messages cannot be edited.");
+  // Editing is a way to send new content, so a rejected sender can't use it either.
+  assertCanSendMessage(await Conversation.findById(message.conversationId).select("status initiatedBy"), req.user._id);
   const text = validateMessageText(req.body.text || "");
   if (!text) throw new AppError(400, "Message text is required.");
   const envelope = describeEncryptedText(text);
@@ -252,16 +294,39 @@ export const editMessage = asyncHandler(async (req, res) => {
   res.status(200).json(message);
 });
 
+// Only remove the Cloudinary file when no other message (e.g. a forward) still points at it.
+const releaseAttachment = async (attachment, messageId) => {
+  if (!attachment?.publicId) return;
+  const stillUsed = await Message.exists({ _id: { $ne: messageId }, "attachment.publicId": attachment.publicId, deleted: false });
+  if (!stillUsed) await destroyAttachment(attachment);
+};
+
 export const deleteMessage = asyncHandler(async (req, res) => {
+  if (req.query.scope === "me") {
+    requireObjectId(req.params.messageId, "message id");
+    const message = await Message.findOne({
+      _id: req.params.messageId,
+      $or: [{ senderId: req.user._id }, { receiverId: req.user._id }],
+    });
+    if (!message) throw new AppError(404, "Message not found.");
+    await Message.updateOne({ _id: message._id }, { $addToSet: { deletedFor: req.user._id } });
+    emitToUser(req.user._id, "messageHidden", { _id: message._id, conversationId: message.conversationId });
+    return res.status(200).json({ ok: true, _id: message._id });
+  }
+
   const message = await ownedMessage(req);
   if (message.deleted) throw new AppError(400, "Message is already deleted.");
+  const attachment = message.attachment?.toObject ? message.attachment.toObject() : message.attachment;
   message.deleted = true;
   message.text = "";
   message.image = "";
+  message.attachment = null;
   await message.save();
+  await Conversation.updateOne({ _id: message.conversationId }, { $pull: { pinnedMessages: { messageId: message._id } } });
   const payload = { _id: message._id, conversationId: message.conversationId };
   emitToUser(message.receiverId, "messageDeleted", payload);
   emitToUser(message.senderId, "messageDeleted", payload);
+  releaseAttachment(attachment, message._id).catch(() => {});
   res.status(200).json(message);
 });
 
@@ -289,6 +354,19 @@ export const getChats = asyncHandler(async (req, res) => {
     status: conversation.status,
     initiatedBy: conversation.initiatedBy,
     conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
+  })));
+});
+
+// Requests this user rejected. Only they can reopen these chats, by sending a message.
+export const getRejected = asyncHandler(async (req, res) => {
+  const rejected = await Conversation.find({ participants: req.user._id, initiatedBy: { $ne: req.user._id }, status: "declined" })
+    .populate("participants", publicUser).sort({ updatedAt: -1 }).limit(100);
+  res.status(200).json(rejected.map((conversation) => ({
+    _id: conversation._id,
+    status: conversation.status,
+    initiatedBy: initiatorId(conversation),
+    updatedAt: conversation.updatedAt,
+    user: otherParticipant(conversation, req.user._id),
   })));
 });
 
@@ -409,14 +487,33 @@ const serializeConversation = (conversation, myId) => {
     status: conversation.status,
     initiatedBy: initiatorId(conversation),
     rituals,
+    pinnedMessages: serializePins(conversation, myId),
   };
 };
+
+const serializePins = (conversation, myId) => (conversation.pinnedMessages || [])
+  .filter((pin) => pin.messageId && typeof pin.messageId === "object" && !pin.messageId.deleted
+    && !(pin.messageId.deletedFor || []).some((id) => String(id) === String(myId)))
+  .map((pin) => ({
+    messageId: String(pin.messageId._id),
+    pinnedBy: pin.pinnedBy ? String(pin.pinnedBy) : null,
+    pinnedAt: pin.pinnedAt,
+    message: {
+      _id: pin.messageId._id,
+      senderId: pin.messageId.senderId,
+      text: pin.messageId.text,
+      image: pin.messageId.image,
+      attachment: pin.messageId.attachment,
+      createdAt: pin.messageId.createdAt,
+    },
+  }));
 
 const loadParticipantConversation = async (conversationId, userId) => {
   requireObjectId(conversationId, "conversation id");
   const conversation = await Conversation.findById(conversationId)
     .populate("participants", publicUser)
-    .populate("lastMessage");
+    .populate("lastMessage")
+    .populate("pinnedMessages.messageId", pinFields);
   if (!conversation) throw new AppError(404, "Conversation not found.");
   if (!conversation.participants.some((participant) => participantId(participant) === String(userId))) {
     throw new AppError(403, "You are not part of this conversation.");
@@ -433,11 +530,13 @@ export const updateConversationVibe = asyncHandler(async (req, res) => {
   const key = (req.body.key || "").trim().toLowerCase();
   if (!ALLOWED_VIBES.includes(key)) throw new AppError(400, "Invalid conversation vibe.");
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertCanSendMessage(conversation, req.user._id);
   conversation.conversationVibe = key;
   await conversation.save();
   const populated = await Conversation.findById(conversation._id)
     .populate("participants", publicUser)
-    .populate("lastMessage");
+    .populate("lastMessage")
+    .populate("pinnedMessages.messageId", pinFields);
   const payload = serializeConversation(populated, req.user._id);
   populated.participants.forEach((participant) => {
     if (String(participant._id) === String(req.user._id)) return;
@@ -506,4 +605,57 @@ export const removeMessageReaction = asyncHandler(async (req, res) => {
   await message.save();
   emitReaction(message, "messageReactionRemoved");
   res.status(200).json({ reactions: message.reactions });
+});
+
+export const getUploadSignature = asyncHandler(async (req, res) => {
+  res.status(200).json(createUploadSignature(req.user._id, String(req.body.kind || "")));
+});
+
+const emitPins = (conversation, payload) => {
+  conversation.participants.forEach((participant) => {
+    emitToUser(participantId(participant), "conversationPinsUpdated", payload);
+  });
+};
+
+const pinsPayload = async (conversationId, myId) => {
+  const fresh = await loadParticipantConversation(conversationId, myId);
+  return { conversationId: fresh._id, pinnedMessages: serializePins(fresh, myId) };
+};
+
+export const pinMessage = asyncHandler(async (req, res) => {
+  const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertCanSendMessage(conversation, req.user._id);
+  requireObjectId(req.params.messageId, "message id");
+  const message = await Message.findOne({ _id: req.params.messageId, conversationId: conversation._id, deleted: false, kind: "user" });
+  if (!message) throw new AppError(404, "Message not found in this conversation.");
+  const already = (conversation.pinnedMessages || []).some((pin) => String(pin.messageId?._id || pin.messageId) === String(message._id));
+  if (!already) {
+    // Newest pin first; keep only the most recent few like other chat apps.
+    await Conversation.updateOne(
+      { _id: conversation._id },
+      { $push: { pinnedMessages: { $each: [{ messageId: message._id, pinnedBy: req.user._id, pinnedAt: new Date() }], $position: 0, $slice: MAX_PINNED_MESSAGES } } }
+    );
+  }
+  const payload = await pinsPayload(conversation._id, req.user._id);
+  emitPins(conversation, payload);
+  res.status(200).json(payload);
+});
+
+export const unpinMessage = asyncHandler(async (req, res) => {
+  const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  requireObjectId(req.params.messageId, "message id");
+  await Conversation.updateOne({ _id: conversation._id }, { $pull: { pinnedMessages: { messageId: req.params.messageId } } });
+  const payload = await pinsPayload(conversation._id, req.user._id);
+  emitPins(conversation, payload);
+  res.status(200).json(payload);
+});
+
+export const setBlocked = asyncHandler(async (req, res) => {
+  const otherId = requireObjectId(req.params.userId, "user id");
+  if (String(otherId) === String(req.user._id)) throw new AppError(400, "You can't block yourself.");
+  if (!(await User.exists({ _id: otherId }))) throw new AppError(404, "User not found.");
+  const blocked = Boolean(req.body.blocked);
+  const update = blocked ? { $addToSet: { blockedUsers: otherId } } : { $pull: { blockedUsers: otherId } };
+  const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select("blockedUsers");
+  res.status(200).json({ blockedUsers: (user.blockedUsers || []).map((id) => String(id)) });
 });

@@ -28,6 +28,13 @@ export const useThemeStore = create((set, get) => {
 
     resetPreviewAppTheme: () => set({ previewAppTheme: get().appliedAppTheme }),
 
+    setAppTheme: (theme) => {
+      if (!theme) return;
+      localStorage.setItem(APP_THEME_KEY, theme);
+      paintAppTheme(theme);
+      set({ appliedAppTheme: theme, previewAppTheme: theme });
+    },
+
     applyAppTheme: () => {
       const previewAppTheme = get().previewAppTheme;
       localStorage.setItem(APP_THEME_KEY, previewAppTheme);

@@ -1,7 +1,7 @@
 import express from "express";
 import protectRoute from "../middleware/auth-middleware.js";
 import { searchLimiter, sendLimiter } from "../middleware/rate-limit.js";
-import { acceptRequest, deleteMessage, editMessage, getChats, getConversationDetails, getConversationMood, getMessages, getRequests, getUsersForSidebar, rejectRequest, removeMessageReaction, searchConversationMessages, searchUsers, sendMessage, updateConversationMood, updateConversationMute, updateConversationVibe, upsertMessageReaction } from "../controllers/message-controller.js";
+import { acceptRequest, deleteMessage, editMessage, getChats, getConversationDetails, getConversationMood, getMessages, getRequests, getRejected, getUsersForSidebar, rejectRequest, removeMessageReaction, getUploadSignature, pinMessage, unpinMessage, setBlocked, searchConversationMessages, searchUsers, sendMessage, updateConversationMood, updateConversationMute, updateConversationVibe, upsertMessageReaction } from "../controllers/message-controller.js";
 import { createMemory, deleteMemory, deleteRitual, listMemories, patchConversationMeta, updateAvailability, updateParticipantMode, upsertRitual } from "../controllers/conversation-features-controller.js";
 
 const router = express.Router();
@@ -9,6 +9,7 @@ router.get("/users", protectRoute, getUsersForSidebar);
 router.get("/search", protectRoute, searchLimiter, searchUsers);
 router.get("/conversations", protectRoute, getChats);
 router.get("/requests", protectRoute, getRequests);
+router.get("/rejected", protectRoute, getRejected);
 router.put("/requests/:id/accept", protectRoute, acceptRequest);
 router.put("/requests/:id/reject", protectRoute, rejectRequest);
 router.get("/conversation/:conversationId/search", protectRoute, searchLimiter, searchConversationMessages);
@@ -20,6 +21,10 @@ router.patch("/conversation/:conversationId/mode", protectRoute, updateParticipa
 router.put("/conversation/:conversationId/rituals", protectRoute, upsertRitual);
 router.delete("/conversation/:conversationId/rituals/:key", protectRoute, deleteRitual);
 router.put("/me/availability", protectRoute, updateAvailability);
+router.post("/media/signature", protectRoute, sendLimiter, getUploadSignature);
+router.put("/block/:userId", protectRoute, setBlocked);
+router.put("/conversation/:conversationId/pins/:messageId", protectRoute, pinMessage);
+router.delete("/conversation/:conversationId/pins/:messageId", protectRoute, unpinMessage);
 router.put("/:messageId/reaction", protectRoute, upsertMessageReaction);
 router.delete("/:messageId/reaction", protectRoute, removeMessageReaction);
 router.get("/conversation/:userId/mood", protectRoute, getConversationMood);

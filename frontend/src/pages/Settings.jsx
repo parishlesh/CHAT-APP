@@ -5,6 +5,7 @@ import { ArrowLeft, MessageSquare, Settings as SettingsIcon, User } from "lucide
 import { Link } from "react-router-dom";
 import ScrollContainer from "../components/scrollbarContainer";
 import ChangePasswordPanel from "../components/ChangePasswordPanel";
+import PersonalizePanel from "../components/PersonalizePanel";
 
 const Settings = () => {
   const { appliedAppTheme, previewAppTheme, setPreviewAppTheme, resetPreviewAppTheme, applyAppTheme } = useThemeStore();
@@ -22,11 +23,13 @@ const Settings = () => {
           <Link to="/" className="btn btn-ghost btn-sm w-fit md:hidden" aria-label="Back to messages">
             <ArrowLeft size={16} /> Messages
           </Link>
-          <ChangePasswordPanel />
+          <PersonalizePanel />
+
+          <div className="divider my-0" />
 
           <div className="flex flex-col gap-1">
             <h2 className="text-lg font-semibold">App theme</h2>
-            <p className="text-sm text-base-content/70">Preview a look for the rest of the app, then apply it. Conversations follow your Mood, not this setting.</p>
+            <p className="text-sm text-base-content/70">Preview a look for the rest of the app, then apply it. Chats use your mood&apos;s theme unless you turn that off in My vibe.</p>
           </div>
 
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 md:grid-cols-8">
@@ -89,6 +92,9 @@ const Settings = () => {
               </div>
             </div>
           </div>
+
+          <div className="divider my-0" />
+          <ChangePasswordPanel />
         </div>
       </div>
     </ScrollContainer>

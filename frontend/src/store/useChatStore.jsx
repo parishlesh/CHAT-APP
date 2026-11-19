@@ -5,6 +5,7 @@ import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKe
 import { notifyIncomingMessage } from "../lib/notify";
 import { getVibeMeta } from "../config/conversationVibes";
 import { canComposeInConversation } from "../lib/conversationAccess";
+import { mediaLabel } from "../lib/media";
 import { useAuth } from "./useAuth";
 import { useConversationThemeStore } from "./useConversationThemeStore";
 
@@ -14,6 +15,9 @@ const conversationIdForUser = (state, userId) => {
   if (!userId) return null;
   return state.chatList.find((chat) => String(chat.user?._id) === String(userId))?._id
     || state.requests.find((request) => String(request.user?._id) === String(userId))?._id
+    || state.rejected.find((item) => String(item.user?._id) === String(userId))?._id
+    // Chats opened from search may not be in any list yet; the server tells us their id with the messages.
+    || (state.selectedUser && String(state.selectedUser._id) === String(userId) ? state.openConversationId : null)
     || null;
 };
 const hasMessage = (messages, id) => messages.some((message) => idsEqual(message._id, id));
@@ -91,10 +95,11 @@ const lastPreview = async (chat, me) => {
   if (!last) return "";
   if (last.deleted) return "This message was deleted";
   if (last.kind === "system" || last.systemEvent) return last.text || "This user has rejected your conversation request.";
-  if (last.image && !last.text) return "Photo";
+  const media = last.attachment?.url ? mediaLabel(last.attachment) : last.image ? "📷 Photo" : "";
+  if (media && !last.text) return media;
   const result = await decryptMessage(last.text, me, chat.user);
-  if (result.status !== "decrypted" || isEncryptedText(result.text)) return last.image ? "Photo" : "Message";
-  if (last.image) return result.text ? result.text : "Photo";
+  if (result.status !== "decrypted" || isEncryptedText(result.text)) return media || "Message";
+  if (media) return result.text ? `${media.split(" ")[0]} ${result.text}` : media;
   return result.text;
 };
 
@@ -133,14 +138,14 @@ const preferExistingPlaintext = (previous, hydrated) => {
 };
 
 const parseMessagePage = (data) => {
-  if (Array.isArray(data)) return { messages: data, hasMore: false };
-  return { messages: data?.messages || [], hasMore: Boolean(data?.hasMore) };
+  if (Array.isArray(data)) return { messages: data, hasMore: false, conversation: null };
+  return { messages: data?.messages || [], hasMore: Boolean(data?.hasMore), conversation: data?.conversation || null };
 };
 
 const chatSessionState = {
   messages: [], selectedUser: null, isUserLoading: false, isMessageLoading: false,
   isLoadingOlder: false, hasMore: false, sending: false,
-  chatList: [], requests: [], searchResults: [], activeTab: "chats", typing: false,
+  chatList: [], requests: [], rejected: [], searchResults: [], chatsLoaded: false, activeTab: "chats", typing: false,
   messageSearch: "", messageMatchIds: [], messageSearchOpen: false, matchIndex: 0,
   editingMessage: null, replyingTo: null, conversationVibe: "neutral",
   relationshipType: "", relationshipCustom: "", myMode: null, theirMode: null,
@@ -148,7 +153,16 @@ const chatSessionState = {
   defaultDisappearing: false, rituals: [], memories: [], settingsPanel: null,
   vibePickerOpen: false, isVibeSaving: false, vibePromptHiddenFor: {},
   conversationStatus: null, conversationInitiatedBy: null, openConversationId: null, requestBusy: false,
+  drafts: {},
+  pinnedMessages: [], viewer: null, queuedFile: null, forwarding: null,
 };
+
+const isBlockedByMe = (userId) => (useAuth.getState().authUser?.blockedUsers || []).some((id) => idsEqual(id, userId));
+
+const hydratePins = (pins, peer) => Promise.all((pins || []).map(async (pin) => ({
+  ...pin,
+  message: await hydrate({ ...pin.message, kind: "user", deleted: false }, peer),
+})));
 
 export const useChatStore = create((set, get) => ({
   ...chatSessionState, loadToken: 0,
@@ -164,8 +178,11 @@ export const useChatStore = create((set, get) => ({
         lastPreview: await lastPreview(chat, me),
       })));
       if (useAuth.getState().authUser?._id !== ownerId) return;
-      set({ chatList: sortChats(chats) });
-    } catch (error) { toast.error(error.response?.data?.message || "Failed to fetch chats."); }
+      set({ chatList: sortChats(chats), chatsLoaded: true });
+    } catch (error) {
+      set({ chatsLoaded: true });
+      toast.error(error.response?.data?.message || "Failed to fetch chats.");
+    }
   },
   getRequests: async () => {
     const ownerId = useAuth.getState().authUser?._id;
@@ -175,6 +192,16 @@ export const useChatStore = create((set, get) => ({
       set({ requests: data });
     }
     catch (error) { toast.error(error.response?.data?.message || "Failed to fetch requests."); }
+  },
+  getRejected: async () => {
+    const ownerId = useAuth.getState().authUser?._id;
+    try {
+      const { data } = await axiosInstance.get("/messages/rejected");
+      if (useAuth.getState().authUser?._id !== ownerId) return;
+      set({ rejected: data });
+    } catch {
+      // Non-critical list; the Requests tab still works without it.
+    }
   },
   searchUsers: async (query) => {
     if (!query.trim()) return set({ searchResults: [] });
@@ -194,7 +221,16 @@ export const useChatStore = create((set, get) => ({
       const page = parseMessagePage(data);
       await cacheEncryptedMessages(userId, page.messages);
       const stubs = page.messages.map(asPendingMessage);
-      set({ messages: stubs, hasMore: page.hasMore, isMessageLoading: false });
+      set({
+        messages: stubs,
+        hasMore: page.hasMore,
+        isMessageLoading: false,
+        ...(page.conversation ? {
+          conversationStatus: page.conversation.status,
+          conversationInitiatedBy: page.conversation.initiatedBy,
+          openConversationId: page.conversation._id,
+        } : {}),
+      });
       await waitForEncryptionInit();
       const peer = get().selectedUser;
       const hydrated = await Promise.all(stubs.map((message) => hydrate(message, peer)));
@@ -261,7 +297,11 @@ export const useChatStore = create((set, get) => ({
   sendMessage: async (messageData) => {
     const { selectedUser, messages, replyingTo, sending } = get();
     const me = useAuth.getState().authUser;
-    if (!selectedUser || sending || !composerAllowed(get())) return;
+    if (!selectedUser || sending || !composerAllowed(get())) return false;
+    if (isBlockedByMe(selectedUser._id)) {
+      toast.error("You blocked this contact. Unblock them to send a message.");
+      return false;
+    }
     const tempId = `temp-${Date.now()}`;
     const pending = {
       _id: tempId,
@@ -269,6 +309,7 @@ export const useChatStore = create((set, get) => ({
       receiverId: selectedUser._id,
       displayText: messageData.text || "",
       image: messageData.image || "",
+      attachment: messageData.attachment || null,
       createdAt: new Date().toISOString(),
       seen: false,
       pending: true,
@@ -340,6 +381,7 @@ export const useChatStore = create((set, get) => ({
           ? state.messages.filter((message) => message._id !== tempId)
           : state.messages.map((message) => message._id === tempId ? nextMessage : message),
       }));
+      return true;
     } catch (error) {
       sendLog("failed", {
         stage: error?.response ? "transport" : "pre-transport",
@@ -359,6 +401,7 @@ export const useChatStore = create((set, get) => ({
       }
       set((state) => ({ sending: false, messages: state.messages.filter((message) => message._id !== tempId) }));
       toast.error(sendFailureMessage(error));
+      return false;
     }
   },
   editMessage: async (messageId, text) => {
@@ -383,24 +426,40 @@ export const useChatStore = create((set, get) => ({
       toast.error(error.response?.data?.message || "Could not edit message.");
     }
   },
-  deleteMessage: async (messageId) => {
-    const previous = get().messages.find((message) => message._id === messageId);
-    set((state) => ({ messages: state.messages.map((message) => message._id === messageId ? { ...message, deleted: true, displayText: "", image: "", replyPreview: null } : message) }));
+  deleteMessage: async (messageId, scope = "everyone") => {
+    const previousMessages = get().messages;
+    const previousPins = get().pinnedMessages;
+    if (scope === "me") {
+      set((state) => ({
+        messages: state.messages.filter((message) => !idsEqual(message._id, messageId)),
+        pinnedMessages: state.pinnedMessages.filter((pin) => !idsEqual(pin.messageId, messageId)),
+      }));
+    } else {
+      set((state) => ({
+        messages: state.messages.map((message) => idsEqual(message._id, messageId) ? { ...message, deleted: true, displayText: "", image: "", attachment: null, replyPreview: null } : message),
+        pinnedMessages: state.pinnedMessages.filter((pin) => !idsEqual(pin.messageId, messageId)),
+      }));
+    }
     try {
-      await axiosInstance.delete(`/messages/${messageId}`);
+      await axiosInstance.delete(`/messages/${messageId}`, { params: scope === "me" ? { scope: "me" } : undefined });
     } catch (error) {
-      if (previous) set((state) => ({ messages: state.messages.map((message) => message._id === messageId ? previous : message) }));
+      set({ messages: previousMessages, pinnedMessages: previousPins });
       toast.error(error.response?.data?.message || "Could not delete message.");
     }
   },
-  searchMessages: async (query) => {
-    set({ messageSearch: query, matchIndex: 0 });
-    const localIds = get().messages.filter((message) => message.displayText?.toLowerCase().includes(query.toLowerCase())).map((message) => message._id);
-    if (!query.trim() || !get().selectedUser) return set({ messageMatchIds: [] });
-    try {
-      const { data } = await axiosInstance.get(`/messages/conversation/${get().selectedUser._id}/search`, { params: { q: query } });
-      set({ messageMatchIds: [...new Set([...localIds, ...data.map((message) => message._id)])] });
-    } catch { set({ messageMatchIds: localIds }); }
+  // Messages are end-to-end encrypted, so the server only holds ciphertext and can't search it.
+  // Search the decrypted messages loaded on this device instead (synchronous, so no stale-response race).
+  searchMessages: (query) => {
+    const needle = query.trim().toLowerCase();
+    const messageMatchIds = needle
+      ? get().messages
+        .filter((message) => !message.deleted && message.decryptStatus === "decrypted" && message.displayText?.toLowerCase().includes(needle))
+        .map((message) => message._id)
+      : [];
+    set({ messageSearch: query, matchIndex: 0, messageMatchIds });
+    if (messageMatchIds.length) {
+      requestAnimationFrame(() => document.getElementById(`msg-${messageMatchIds[0]}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    }
   },
   goToMatch: (direction = 1) => {
     const ids = get().messageMatchIds;
@@ -409,9 +468,12 @@ export const useChatStore = create((set, get) => ({
     set({ matchIndex: next });
     document.getElementById(`msg-${ids[next]}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   },
-  pruneExpired: () => set((state) => ({
-    messages: state.messages.filter((message) => !message.expiresAt || new Date(message.expiresAt) > new Date()),
-  })),
+  pruneExpired: () => set((state) => {
+    const now = Date.now();
+    const messages = state.messages.filter((message) => !message.expiresAt || new Date(message.expiresAt).getTime() > now);
+    // Returning the same state skips a re-render of every bubble when nothing expired.
+    return messages.length === state.messages.length ? state : { messages };
+  }),
   respondToRequest: async (id, action) => {
     if (!id || get().requestBusy) return;
     set({ requestBusy: true });
@@ -432,6 +494,7 @@ export const useChatStore = create((set, get) => ({
     set((state) => ({
       requestBusy: false,
       requests: state.requests.filter((request) => !idsEqual(request._id, conversation._id)),
+      rejected: conversation.status === "declined" ? state.rejected : state.rejected.filter((item) => !idsEqual(item._id, conversation._id)),
       conversationStatus: open ? conversation.status : state.conversationStatus,
       conversationInitiatedBy: open ? (conversation.initiatedBy?._id || conversation.initiatedBy) : state.conversationInitiatedBy,
       openConversationId: open ? conversation._id : state.openConversationId,
@@ -439,7 +502,10 @@ export const useChatStore = create((set, get) => ({
       editingMessage: open && conversation.status !== "accepted" ? null : state.editingMessage,
       replyingTo: open && conversation.status !== "accepted" ? null : state.replyingTo,
     }));
-    if (conversation.status === "accepted" || conversation.status === "declined") get().getChats();
+    if (conversation.status === "accepted" || conversation.status === "declined") {
+      get().getChats();
+      get().getRejected();
+    }
   },
   subscribeToMessages: () => {
     const socket = useAuth.getState().socket;
@@ -495,8 +561,27 @@ export const useChatStore = create((set, get) => ({
       if (get().selectedUser?._id !== peer?._id) return;
       set((state) => ({ messages: state.messages.map((item) => idsEqual(item._id, message._id) ? { ...updated, replyPreview: item.replyPreview } : item) }));
     });
-    socket.off("messageDeleted").on("messageDeleted", ({ _id }) => set((state) => ({ messages: state.messages.map((message) => idsEqual(message._id, _id) ? { ...message, deleted: true, text: "", image: "", displayText: "", replyPreview: null } : message) })));
-    socket.off("typing").on("typing", ({ from }) => { if (idsEqual(from, get().selectedUser?._id)) set({ typing: true }); });
+    socket.off("messageDeleted").on("messageDeleted", ({ _id }) => set((state) => ({
+      messages: state.messages.map((message) => idsEqual(message._id, _id) ? { ...message, deleted: true, text: "", image: "", attachment: null, displayText: "", replyPreview: null } : message),
+      pinnedMessages: state.pinnedMessages.filter((pin) => !idsEqual(pin.messageId, _id)),
+    })));
+    socket.off("messageHidden").on("messageHidden", ({ _id }) => set((state) => ({
+      messages: state.messages.filter((message) => !idsEqual(message._id, _id)),
+      pinnedMessages: state.pinnedMessages.filter((pin) => !idsEqual(pin.messageId, _id)),
+    })));
+    socket.off("conversationPinsUpdated").on("conversationPinsUpdated", async (payload) => {
+      const openId = conversationIdForUser(get(), get().selectedUser?._id);
+      if (!idsEqual(openId, payload?.conversationId)) return;
+      const peer = get().selectedUser;
+      const pins = await hydratePins(payload.pinnedMessages, peer);
+      if (!idsEqual(get().selectedUser?._id, peer?._id)) return;
+      set({ pinnedMessages: pins });
+    });
+    socket.off("userLastSeen").on("userLastSeen", ({ userId, lastSeen }) => set((state) => ({
+      selectedUser: state.selectedUser && idsEqual(state.selectedUser._id, userId) ? { ...state.selectedUser, lastSeen } : state.selectedUser,
+      chatList: state.chatList.map((chat) => idsEqual(chat.user?._id, userId) ? { ...chat, user: { ...chat.user, lastSeen } } : chat),
+    })));
+    socket.off("typing").on("typing", ({ from, activity }) => { if (idsEqual(from, get().selectedUser?._id)) set({ typing: activity === "recording" ? "recording" : "typing" }); });
     socket.off("stopTyping").on("stopTyping", ({ from }) => { if (idsEqual(from, get().selectedUser?._id)) set({ typing: false }); });
     socket.off("conversationRequest").on("conversationRequest", (request) => {
       const myId = useAuth.getState().authUser?._id;
@@ -573,9 +658,12 @@ export const useChatStore = create((set, get) => ({
     socket.off("messageReactionRemoved").on("messageReactionRemoved", applyReactions);
     socket.off("conversationMemoryCreated").on("conversationMemoryCreated", (payload) => {
       if (!payload?.memory) return;
-      set((state) => ({ memories: [payload.memory, ...state.memories.filter((item) => item._id !== payload.memory._id)] }));
+      const openId = conversationIdForUser(get(), get().selectedUser?._id);
+      if (!idsEqual(openId, payload.conversationId || payload.memory.conversationId)) return;
+      set((state) => ({ memories: [payload.memory, ...state.memories.filter((item) => !idsEqual(item._id, payload.memory._id))] }));
     });
     socket.off("conversationMemoryDeleted").on("conversationMemoryDeleted", (payload) => {
+      if (!payload?.memoryId) return;
       set((state) => ({ memories: state.memories.filter((item) => !idsEqual(item._id, payload.memoryId)) }));
     });
     socket.off("ritualUpdated").on("ritualUpdated", (payload) => {
@@ -584,7 +672,7 @@ export const useChatStore = create((set, get) => ({
       set({ rituals: payload.rituals || [] });
     });
   },
-  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated", "conversationMetaUpdated", "conversationModeUpdated", "conversationStatusUpdated", "messageReactionAdded", "messageReactionUpdated", "messageReactionRemoved", "conversationMemoryCreated", "conversationMemoryDeleted", "ritualUpdated"].forEach((event) => useAuth.getState().socket?.off(event)),
+  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated", "conversationMetaUpdated", "conversationModeUpdated", "conversationStatusUpdated", "messageReactionAdded", "messageReactionUpdated", "messageReactionRemoved", "conversationMemoryCreated", "conversationMemoryDeleted", "ritualUpdated", "messageHidden", "conversationPinsUpdated", "userLastSeen"].forEach((event) => useAuth.getState().socket?.off(event)),
   resetChatState: () => {
     get().unsubscribeFromMessages();
     set({ ...chatSessionState, loadToken: get().loadToken + 1 });
@@ -618,6 +706,9 @@ export const useChatStore = create((set, get) => ({
       conversationStatus: null,
       conversationInitiatedBy: null,
       openConversationId: null,
+      pinnedMessages: [],
+      viewer: null,
+      forwarding: null,
     });
     useConversationThemeStore.getState().clearConversationMood();
   },
@@ -628,7 +719,8 @@ export const useChatStore = create((set, get) => ({
       return;
     }
     const match = get().chatList.find((chat) => String(chat.user?._id) === String(selectedUser._id))
-      || get().requests.find((request) => String(request.user?._id) === String(selectedUser._id));
+      || get().requests.find((request) => String(request.user?._id) === String(selectedUser._id))
+      || get().rejected.find((item) => String(item.user?._id) === String(selectedUser._id));
     set({
       selectedUser: {
         ...selectedUser,
@@ -636,6 +728,7 @@ export const useChatStore = create((set, get) => ({
       },
       conversationVibe: match?.conversationVibe || "neutral",
       relationshipType: match?.relationshipType || "",
+      relationshipCustom: "",
       conversationStatus: match?.status || null,
       conversationInitiatedBy: match?.initiatedBy?._id || match?.initiatedBy || null,
       openConversationId: match?._id || null,
@@ -658,12 +751,15 @@ export const useChatStore = create((set, get) => ({
       replyingTo: null,
       hasMore: false,
       matchIndex: 0,
+      pinnedMessages: [],
+      viewer: null,
+      forwarding: null,
     });
   },
   getConversationDetails: async () => {
     const { selectedUser } = get();
     const conversationId = conversationIdForUser(get(), selectedUser?._id);
-    if (!conversationId) return set({ conversationVibe: "neutral" });
+    if (!conversationId) return set({ conversationVibe: "neutral", relationshipType: "", relationshipCustom: "" });
     try {
       const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}`);
       if (get().selectedUser?._id !== selectedUser._id) return;
@@ -693,6 +789,8 @@ export const useChatStore = create((set, get) => ({
             : chat)
           : get().chatList,
       });
+      const pins = await hydratePins(data.pinnedMessages, get().selectedUser);
+      if (get().selectedUser?._id === selectedUser._id) set({ pinnedMessages: pins });
       await get().retryPendingDecryption({ includeFailed: true });
     } catch {
       if (get().selectedUser?._id !== selectedUser._id) return;
@@ -798,7 +896,7 @@ export const useChatStore = create((set, get) => ({
     if (!conversationId) return;
     try {
       const { data } = await axiosInstance.post(`/messages/conversation/${conversationId}/memories`, body);
-      set((state) => ({ memories: [data, ...state.memories] }));
+      set((state) => ({ memories: [data, ...state.memories.filter((item) => !idsEqual(item._id, data._id))] }));
       toast.success("Memory saved");
     } catch (error) {
       toast.error(error.response?.data?.message || "Could not save memory.");
@@ -839,4 +937,75 @@ export const useChatStore = create((set, get) => ({
   setMessageSearchOpen: (messageSearchOpen) => set({ messageSearchOpen, ...(messageSearchOpen ? {} : { messageSearch: "", messageMatchIds: [] }) }),
   setEditingMessage: (editingMessage) => set({ editingMessage, replyingTo: null }),
   setReplyingTo: (replyingTo) => set({ replyingTo, editingMessage: null }),
+  openViewer: (viewer) => set({ viewer }),
+  closeViewer: () => set({ viewer: null }),
+  queueAttachment: (queuedFile) => set({ queuedFile }),
+  clearQueuedFile: () => set({ queuedFile: null }),
+  setForwarding: (forwarding) => set({ forwarding }),
+  pinMessage: async (messageId) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    try {
+      const { data } = await axiosInstance.put(`/messages/conversation/${conversationId}/pins/${messageId}`);
+      set({ pinnedMessages: await hydratePins(data.pinnedMessages, get().selectedUser) });
+      toast.success("Message pinned");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not pin message.");
+    }
+  },
+  unpinMessage: async (messageId) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return;
+    const previous = get().pinnedMessages;
+    set({ pinnedMessages: previous.filter((pin) => !idsEqual(pin.messageId, messageId)) });
+    try {
+      await axiosInstance.delete(`/messages/conversation/${conversationId}/pins/${messageId}`);
+    } catch (error) {
+      set({ pinnedMessages: previous });
+      toast.error(error.response?.data?.message || "Could not unpin message.");
+    }
+  },
+  // Text is re-encrypted for each recipient on this device; media is copied server-side.
+  forwardMessage: async (message, targets) => {
+    const me = useAuth.getState().authUser;
+    let sent = 0;
+    for (const target of targets) {
+      try {
+        const peerPublic = resolveConversationPeerKey(me, target, listedPeerFor(get(), target._id));
+        const text = message.displayText
+          ? await encryptText(message.displayText, me, { ...target, encryptionPublicKey: peerPublic || target.encryptionPublicKey })
+          : "";
+        await axiosInstance.post(`/messages/send/${target._id}`, { text, forwardOf: message._id });
+        sent += 1;
+      } catch (error) {
+        toast.error(`${target.fullName}: ${sendFailureMessage(error)}`);
+      }
+    }
+    if (sent) {
+      toast.success(sent === 1 ? `Forwarded to ${targets[0].fullName}` : `Forwarded to ${sent} chats`);
+      get().getChats();
+    }
+    return sent;
+  },
+  setBlocked: async (userId, blocked) => {
+    try {
+      const { data } = await axiosInstance.put(`/messages/block/${userId}`, { blocked });
+      const authUser = useAuth.getState().authUser;
+      if (authUser) useAuth.setState({ authUser: { ...authUser, blockedUsers: data.blockedUsers || [] } });
+      toast.success(blocked ? "Contact blocked" : "Contact unblocked");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not update block.");
+    }
+  },
+  setDraft: (userId, text) => {
+    if (!userId) return;
+    set((state) => {
+      const key = String(userId);
+      if ((state.drafts[key] || "") === text) return state;
+      const drafts = { ...state.drafts };
+      if (text) drafts[key] = text;
+      else delete drafts[key];
+      return { drafts };
+    });
+  },
 }));

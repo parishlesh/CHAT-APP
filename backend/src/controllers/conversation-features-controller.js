@@ -10,6 +10,7 @@ import {
 } from "../lib/catalog.js";
 import { loadParticipantConversation, serializeConversation, participantId } from "./message-controller.js";
 import { requireObjectId } from "../lib/validate.js";
+import { assertCanSendMessage, reachablePeerIds } from "../lib/conversation-access.js";
 
 const emitToOthers = (conversation, myId, event, payload) => {
   conversation.participants.forEach((participant) => {
@@ -24,6 +25,10 @@ const reload = (id, myId) => loadParticipantConversation(id, myId).then((convers
 export const patchConversationMeta = asyncHandler(async (req, res) => {
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
   const { relationshipType, relationshipCustom, appearance, locked, defaultDisappearing } = req.body;
+  // Lock is personal; everything else is shared and notifies the other person.
+  if (relationshipType !== undefined || appearance || typeof defaultDisappearing === "boolean") {
+    assertCanSendMessage(conversation, req.user._id);
+  }
   if (relationshipType !== undefined) {
     const key = String(relationshipType || "").trim().toLowerCase();
     if (key && !RELATIONSHIP_TYPES.includes(key)) throw new AppError(400, "Invalid relationship type.");
@@ -54,6 +59,7 @@ export const patchConversationMeta = asyncHandler(async (req, res) => {
 
 export const updateParticipantMode = asyncHandler(async (req, res) => {
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertCanSendMessage(conversation, req.user._id);
   const key = req.body.key == null || req.body.key === "" ? null : String(req.body.key).trim().toLowerCase();
   if (key && !CONVERSATION_MODES.includes(key)) throw new AppError(400, "Invalid mode.");
   const expiresAt = req.body.until ? new Date(req.body.until) : null;
@@ -77,8 +83,8 @@ export const updateAvailability = asyncHandler(async (req, res) => {
   const until = req.body.until ? new Date(req.body.until) : null;
   if (until && Number.isNaN(until.getTime())) throw new AppError(400, "Invalid until date.");
   const user = await User.findByIdAndUpdate(req.user._id, { availability: { key, until } }, { new: true }).select("-password");
-  const conversations = await Conversation.find({ participants: req.user._id }).select("participants");
-  conversations.forEach((conversation) => emitToOthers(conversation, req.user._id, "conversationStatusUpdated", {
+  const conversations = await Conversation.find({ participants: req.user._id }).select("participants status initiatedBy");
+  reachablePeerIds(conversations, req.user._id).forEach((peerId) => emitToUser(peerId, "conversationStatusUpdated", {
     userId: req.user._id,
     availability: user.availability,
   }));
@@ -93,6 +99,7 @@ export const listMemories = asyncHandler(async (req, res) => {
 
 export const createMemory = asyncHandler(async (req, res) => {
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertCanSendMessage(conversation, req.user._id);
   requireObjectId(req.body.messageId, "message id");
   const message = await Message.findOne({ _id: req.body.messageId, conversationId: conversation._id });
   if (!message) throw new AppError(404, "Message not found in this conversation.");
@@ -114,6 +121,7 @@ export const createMemory = asyncHandler(async (req, res) => {
 
 export const deleteMemory = asyncHandler(async (req, res) => {
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertCanSendMessage(conversation, req.user._id);
   requireObjectId(req.params.memoryId, "memory id");
   const memory = await Memory.findOneAndDelete({ _id: req.params.memoryId, conversationId: conversation._id });
   if (!memory) throw new AppError(404, "Memory not found.");
@@ -123,6 +131,7 @@ export const deleteMemory = asyncHandler(async (req, res) => {
 
 export const upsertRitual = asyncHandler(async (req, res) => {
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertCanSendMessage(conversation, req.user._id);
   const key = String(req.body.key || "").trim().toLowerCase();
   if (!RITUAL_KEYS.includes(key)) throw new AppError(400, "Invalid ritual.");
   const recurrence = req.body.recurrence === "weekly" ? "weekly" : "daily";
@@ -143,6 +152,7 @@ export const upsertRitual = asyncHandler(async (req, res) => {
 
 export const deleteRitual = asyncHandler(async (req, res) => {
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertCanSendMessage(conversation, req.user._id);
   const key = String(req.params.key || "").trim().toLowerCase();
   conversation.rituals = (conversation.rituals || []).filter((ritual) => ritual.key !== key);
   await conversation.save();

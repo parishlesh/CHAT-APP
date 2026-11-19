@@ -2,43 +2,21 @@ import { getMoodMeta } from "../lib/moods";
 import { useConversationThemeStore } from "../store/useConversationThemeStore";
 import { useChatStore } from "../store/useChatStore";
 
+// Their mood now lives in the chat header, so this only nudges you to set your own when you haven't.
 const MoodBanner = () => {
-  const { mine, theirs, openMoodPicker, isMoodLoading } = useConversationThemeStore();
+  const { mine, openMoodPicker, isMoodLoading } = useConversationThemeStore();
   const selectedUser = useChatStore((state) => state.selectedUser);
-  if (isMoodLoading || !selectedUser) return null;
-
-  const myMood = getMoodMeta(mine?.mood);
-  const theirMood = getMoodMeta(theirs?.mood);
-  if (!myMood && !theirMood) {
-    return (
-      <div className="flex w-full items-center border-b border-base-300 px-3 py-1 text-xs text-base-content/80">
-        <button type="button" onClick={openMoodPicker} className="hover:underline" aria-label="Change mood">
-          🙂 How are you feeling?
-        </button>
-      </div>
-    );
-  }
+  if (isMoodLoading || !selectedUser || getMoodMeta(mine?.mood)) return null;
 
   return (
-    <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-b border-base-300 px-3 py-1 text-xs text-base-content/80">
-      {theirMood ? (
-        <p>
-          {theirMood.emoji} {selectedUser.fullName} is feeling {theirMood.label}
-        </p>
-      ) : <span />}
-      {myMood ? (
-        <p>
-          {myMood.emoji} You&apos;re feeling {myMood.label}
-          <button type="button" onClick={openMoodPicker} className="ml-2 font-medium text-primary hover:underline" aria-label="Change mood">
-            Change
-          </button>
-        </p>
-      ) : (
-        <button type="button" onClick={openMoodPicker} className="hover:underline">
-          🙂 How are you feeling?
-        </button>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={openMoodPicker}
+      className="flex w-full shrink-0 items-center gap-2 border-b border-base-300 bg-base-100 px-3 py-1.5 text-left text-xs text-base-content/80 hover:bg-base-200/60"
+    >
+      <span aria-hidden="true">🙂</span>
+      <span className="flex-1">How are you feeling? <span className="font-medium text-primary">Set your mood</span></span>
+    </button>
   );
 };
 

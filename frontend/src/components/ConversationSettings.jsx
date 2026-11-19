@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 import { useEffect, useState } from "react";
-import { Bell, BellOff, ChevronRight, Search, Smile } from "lucide-react";
+import { ArrowLeft, Ban, Bell, BellOff, ChevronRight, Search, Smile, X } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
 import { useConversationThemeStore } from "../store/useConversationThemeStore";
@@ -12,9 +12,10 @@ import {
 } from "../config/conversationExtras";
 import { requestNotificationPermission } from "../lib/notify";
 import OptionButton from "./OptionButton";
+import { Link } from "react-router-dom";
 
 const SHEET =
-  "ui-pop z-30 overflow-y-auto border border-base-300 bg-base-100 py-1 shadow-md max-h-[min(85dvh,32rem)] w-full rounded-t-2xl fixed inset-x-0 bottom-0 safe-bottom sm:absolute sm:inset-auto sm:right-2 sm:top-12 sm:w-72 sm:max-h-[80vh] sm:rounded-lg sm:pb-1";
+  "ui-sheet z-30 overflow-y-auto overscroll-contain border border-base-300 bg-base-100 pb-1 shadow-xl max-h-[min(85dvh,36rem)] w-full rounded-t-2xl fixed inset-x-0 bottom-0 safe-bottom sm:absolute sm:inset-auto sm:right-2 sm:top-14 sm:w-80 sm:max-h-[80vh] sm:rounded-xl sm:pt-1";
 
 const Section = ({ title, children }) => (
   <div className="border-t border-base-300 py-2">
@@ -34,13 +35,15 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   const {
     conversationVibe, relationshipType, relationshipCustom, myMode, appearance, conversationLocked,
     defaultDisappearing, rituals, memories, openVibePicker, patchConversationMeta, updateMyMode,
-    updateAvailability, loadMemories, deleteMemory, upsertRitual, deleteRitual, selectedUser,
+    updateAvailability, loadMemories, deleteMemory, upsertRitual, deleteRitual, selectedUser, setBlocked,
   } = useChatStore();
   const { mine, muted, openMoodPicker, setConversationMute } = useConversationThemeStore();
   const { authUser } = useAuth();
   const [view, setView] = useState("menu");
   const [busy, setBusy] = useState(false);
   const [customLabel, setCustomLabel] = useState(relationshipCustom);
+  const [confirmBlock, setConfirmBlock] = useState(false);
+  const blockedByMe = (authUser?.blockedUsers || []).some((id) => String(id) === String(selectedUser?._id));
   const myMood = getMoodMeta(mine?.mood);
   const vibe = getVibeMeta(conversationVibe);
   const relationship = findMeta(RELATIONSHIP_TYPES, relationshipType);
@@ -146,7 +149,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   if (view === "appearance") {
     return (
       <Panel onBack={() => setView("menu")} title="Appearance">
-        <p className="px-3 text-[11px] opacity-60">This is not Conversation Vibe or App Theme.</p>
+        <p className="px-3 text-[11px] opacity-60">Shared with {selectedUser?.fullName || "them"}. For a look only you see, use Settings → My vibe.</p>
         <p className="px-3 pt-2 text-xs font-medium">Wallpaper</p>
         {WALLPAPERS.map((item) => (
           <OptionButton
@@ -232,11 +235,15 @@ const ConversationSettings = ({ onClose, onSearch }) => {
 
   return (
     <div className={SHEET}>
-      <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">Conversation settings</p>
+      <SheetHeader title="Chat settings" subtitle={selectedUser?.fullName} onClose={onClose} />
       <Section title="🎭 Conversation">
         <Row label="Vibe" value={`${vibe.emoji} ${vibe.label}`} onClick={() => { onClose(); openVibePicker(); }} />
         <Row label="Relationship type" value={relationship ? `${relationship.emoji} ${relationship.key === "custom" && relationshipCustom ? relationshipCustom : relationship.label}` : "Set"} onClick={() => setView("relationship")} />
         <Row label="Appearance" value={`${appearance?.wallpaper || "default"} · ${appearance?.bubbleStyle || "classic"}`} onClick={() => setView("appearance")} />
+        <Link to="/settings" onClick={onClose} className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200">
+          <span>✨ My vibe</span>
+          <span className="flex items-center gap-1 text-xs opacity-70">Colors, font, effects<ChevronRight size={14} /></span>
+        </Link>
       </Section>
       <Section title="🙋 Me">
         <button type="button" className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { onClose(); openMoodPicker(); }}>
@@ -269,15 +276,54 @@ const ConversationSettings = ({ onClose, onSearch }) => {
         <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { onClose(); onSearch(); }}>
           <Search size={16} /> Search
         </button>
+        {blockedByMe ? (
+          <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => setBlocked(selectedUser._id, false))}>
+            <Ban size={16} /> Unblock {selectedUser?.fullName}
+          </button>
+        ) : confirmBlock ? (
+          <div className="px-3 py-2">
+            <p className="text-xs">Block {selectedUser?.fullName}? They won&apos;t be able to message you, and you won&apos;t be able to message them.</p>
+            <div className="mt-2 flex justify-end gap-2">
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setConfirmBlock(false)}>Cancel</button>
+              <button type="button" className="btn btn-error btn-xs" disabled={busy} onClick={() => run(async () => { await setBlocked(selectedUser._id, true); setConfirmBlock(false); })}>Block</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-error hover:bg-base-200" onClick={() => setConfirmBlock(true)}>
+            <Ban size={16} /> Block {selectedUser?.fullName}
+          </button>
+        )}
       </Section>
     </div>
   );
 };
 
+// Grab handle on phones (where this is a bottom sheet), title, and a clear way out.
+const SheetHeader = ({ title, subtitle, onBack, onClose }) => (
+  <div className="sticky top-0 z-10 bg-base-100">
+    <div className="mx-auto mb-1 mt-1.5 h-1 w-10 rounded-full bg-base-300 sm:hidden" aria-hidden="true" />
+    <div className="flex items-center gap-1 px-2 pb-1.5">
+      {onBack && (
+        <button type="button" className="ui-press rounded-full p-1.5 hover:bg-base-200" aria-label="Back" onClick={onBack}>
+          <ArrowLeft size={16} />
+        </button>
+      )}
+      <div className="min-w-0 flex-1 px-1">
+        <p className="truncate text-sm font-semibold">{title}</p>
+        {subtitle && <p className="truncate text-[11px] text-base-content/60">{subtitle}</p>}
+      </div>
+      {onClose && (
+        <button type="button" className="ui-press rounded-full p-1.5 hover:bg-base-200" aria-label="Close" onClick={onClose}>
+          <X size={16} />
+        </button>
+      )}
+    </div>
+  </div>
+);
+
 const Panel = ({ title, onBack, children }) => (
   <div className={SHEET}>
-    <button type="button" className="ui-press px-3 py-2 text-xs opacity-70" onClick={onBack}>Back</button>
-    <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-base-content/50">{title}</p>
+    <SheetHeader title={title} onBack={onBack} />
     {children}
   </div>
 );

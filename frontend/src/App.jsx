@@ -11,12 +11,14 @@ import { useEffect } from 'react'
 import { Loader } from 'lucide-react'
 import { Toaster } from 'react-hot-toast'
 import { useThemeStore } from './store/useThemeStore'
+import { usePersonalizationStore } from './store/usePersonalizationStore'
 import BrandMark from './components/BrandMark'
 import EncryptionRecoveryBanner from './components/EncryptionRecoveryBanner'
 
 const App = () => {
   const { authUser, checkAuth, isCheckingAuth } = useAuth();
   const { appliedAppTheme } = useThemeStore();
+  const loadPersonalization = usePersonalizationStore((state) => state.loadFor);
 
   useEffect(() => {
     checkAuth();
@@ -25,6 +27,10 @@ const App = () => {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", appliedAppTheme);
   }, [appliedAppTheme]);
+
+  useEffect(() => {
+    loadPersonalization(authUser?._id || null);
+  }, [authUser?._id, loadPersonalization]);
 
   if (isCheckingAuth && !authUser) {
     return (

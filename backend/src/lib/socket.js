@@ -11,6 +11,7 @@ import { addUserSocket, getOnlineUserIds, getReceiverSocketId, removeUserSocket 
 import { createRedisSubscriber, getRedis } from "./redis.js";
 import { logger } from "./logger.js";
 import { isObjectId } from "./validate.js";
+import { canInteract } from "./conversation-access.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -87,12 +88,15 @@ io.on("connection", async (socket) => {
 
   const relayTyping = async (event, payload = {}) => {
     if (!userId || !payload.to || !isObjectId(payload.to)) return;
-    const conversation = await Conversation.exists({
+    const conversation = await Conversation.findOne({
       participants: { $all: [userId, payload.to], $size: 2 },
-    });
-    if (!conversation) return;
+    }).select("_id status initiatedBy");
+    // Stop events always go through so an indicator never gets stuck; start events need permission to talk.
+    if (!conversation || (event === "typing" && !canInteract(conversation, userId))) return;
+    // "recording" lets the other side show "recording audio…" instead of "typing…".
+    const activity = payload.activity === "recording" ? "recording" : "typing";
     socket.data.typingTarget = { to: payload.to, conversationId: conversation._id.toString() };
-    emitToUser(payload.to, event, { from: userId, conversationId: conversation._id.toString() });
+    emitToUser(payload.to, event, { from: userId, conversationId: conversation._id.toString(), activity });
   };
 
   socket.on("typing", (payload) => relayTyping("typing", payload));
@@ -120,7 +124,12 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("disconnect", async () => {
-    await removeUserSocket(userId, socket.id);
+    const { wentOffline } = (await removeUserSocket(userId, socket.id)) || {};
+    if (wentOffline) {
+      const lastSeen = new Date();
+      await User.updateOne({ _id: userId }, { $set: { lastSeen } }).catch(() => {});
+      io.emit("userLastSeen", { userId, lastSeen });
+    }
     const target = socket.data.typingTarget;
     if (target) emitToUser(target.to, "stopTyping", { from: userId, conversationId: target.conversationId });
     io.emit("getOnlineUsers", await getOnlineUserIds());

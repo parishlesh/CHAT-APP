@@ -5,8 +5,9 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "test": "node --test tests/origins.test.js tests/validate.test.js tests/presence.test.js tests/errors.test.js tests/catalog.test.js tests/encryption-contract.test.js tests/encryption-key-update.test.js tests/conversation-dates.test.js tests/conversation-access.test.js tests/cookie-options.test.js tests/envelope.test.js tests/password-otp.test.js tests/password-change.test.js tests/mailer.test.js",
-    "test:mail": "node scripts/send-test-otp.js"
+    "test": "node --test tests/origins.test.js tests/validate.test.js tests/presence.test.js tests/errors.test.js tests/catalog.test.js tests/encryption-contract.test.js tests/encryption-key-update.test.js tests/conversation-dates.test.js tests/conversation-access.test.js tests/cookie-options.test.js tests/envelope.test.js tests/password-otp.test.js tests/password-change.test.js tests/mailer.test.js tests/appearance-catalog.test.js tests/media.test.js",
+    "test:mail": "node scripts/send-test-otp.js",
+    "test:integration": "node --test --test-concurrency=1 tests/request-flow.integration.test.js"
   },
   "keywords": [],
   "author": "",
@@ -30,6 +31,8 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "mongodb-memory-server": "^10.4.3",
+    "nodemon": "^3.1.9",
+    "socket.io-client": "^4.8.1"
   }
 }

@@ -5,6 +5,43 @@ export const REQUEST_DECLINED_TEXT = "This user has rejected your conversation r
 
 export const initiatorId = (conversation) => String(conversation?.initiatedBy?._id || conversation?.initiatedBy || "");
 
+// The person whose request was rejected. They stay locked out until the other person messages them.
+export const isRejectedParty = (conversation, userId) => (
+  conversation?.status === "declined" && initiatorId(conversation) === String(userId)
+);
+
+export const canInteract = (conversation, userId) => {
+  try {
+    assertCanSendMessage(conversation, userId);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Mood/availability broadcasts skip declined chats in both directions: the rejected person
+// doesn't see the other's status, and doesn't get to push theirs either.
+export const reachablePeerIds = (conversations, userId) => {
+  const peerIds = new Set();
+  conversations.forEach((conversation) => {
+    if (conversation?.status === "declined") return;
+    (conversation.participants || []).forEach((participant) => {
+      const id = String(participant?._id ?? participant);
+      if (id !== String(userId)) peerIds.add(id);
+    });
+  });
+  return peerIds;
+};
+
+// How a successful send changes the conversation. Only the person who rejected the request
+// can send into a declined conversation (assertCanSendMessage), and doing so reopens it
+// fully, so both people can talk again without a new request.
+export const statusAfterSend = (conversation, senderId) => {
+  if (!conversation) return { status: "pending", initiatedBy: String(senderId), createdRequest: true };
+  if (conversation.status === "declined") return { status: "accepted", reopened: true };
+  return null;
+};
+
 export const assertCanSendMessage = (conversation, senderId) => {
   if (!conversation) return;
   const initiator = initiatorId(conversation);

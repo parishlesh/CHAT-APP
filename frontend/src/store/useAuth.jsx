@@ -249,6 +249,7 @@ export const useAuth = create((set, get) => ({
             chat.subscribeToMessages();
             chat.getChats();
             chat.getRequests();
+            chat.getRejected();
             if (chat.selectedUser?._id) chat.getMessages(chat.selectedUser._id);
           });
         });

@@ -137,6 +137,129 @@ body {
   100% { transform: scale(1); }
 }
 
+/* ---------- Personalization ("My Vibe") ---------- */
+
+html[data-vl-font],
+html[data-vl-font] body,
+html[data-vl-font] input,
+html[data-vl-font] textarea,
+html[data-vl-font] button,
+html[data-vl-font] select {
+  font-family: var(--vl-font);
+}
+
+.vl-msg-text {
+  font-size: var(--vl-msg-size, 15px);
+}
+
+[data-density="compact"] .vl-bubble {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
+/* Wallpapers use theme variables so they adapt to every app/mood theme. */
+.vl-wall-sunset {
+  background-image: linear-gradient(165deg, hsl(var(--wa) / 0.22), hsl(var(--er) / 0.16) 45%, hsl(var(--s) / 0.2));
+}
+.vl-wall-ocean {
+  background-image: linear-gradient(180deg, hsl(var(--in) / 0.2), hsl(var(--p) / 0.12) 60%, hsl(var(--in) / 0.08));
+}
+.vl-wall-aurora {
+  background-image:
+    radial-gradient(ellipse at 15% 0%, hsl(var(--su) / 0.22), transparent 55%),
+    radial-gradient(ellipse at 85% 10%, hsl(var(--a) / 0.22), transparent 55%),
+    radial-gradient(ellipse at 50% 100%, hsl(var(--p) / 0.16), transparent 60%);
+}
+.vl-wall-dots {
+  background-image: radial-gradient(hsl(var(--bc) / 0.12) 1px, transparent 1.5px);
+  background-size: 18px 18px;
+}
+.vl-wall-grid {
+  background-image:
+    linear-gradient(hsl(var(--bc) / 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--bc) / 0.07) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Conversation vibe: a tinted glow plus drifting emojis behind the messages. */
+.vl-vibe-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  --vibe-tint: transparent;
+  background: radial-gradient(ellipse 90% 60% at 50% 0%, var(--vibe-tint), transparent 70%);
+}
+.vl-vibe-layer.vibe-happy { --vibe-tint: rgba(250, 204, 21, 0.16); }
+.vl-vibe-layer.vibe-angry { --vibe-tint: rgba(239, 68, 68, 0.16); }
+.vl-vibe-layer.vibe-sad { --vibe-tint: rgba(96, 165, 250, 0.16); }
+.vl-vibe-layer.vibe-romantic { --vibe-tint: rgba(244, 63, 94, 0.16); }
+.vl-vibe-layer.vibe-playful { --vibe-tint: rgba(168, 85, 247, 0.15); }
+.vl-vibe-layer.vibe-excited { --vibe-tint: rgba(249, 115, 22, 0.16); }
+.vl-vibe-layer.vibe-calm { --vibe-tint: rgba(45, 212, 191, 0.14); }
+.vl-vibe-layer.vibe-focused { --vibe-tint: rgba(59, 130, 246, 0.12); }
+.vl-vibe-layer.vibe-celebration { --vibe-tint: rgba(236, 72, 153, 0.15); }
+.vl-vibe-layer.vibe-flirty { --vibe-tint: rgba(219, 39, 119, 0.15); }
+.vl-vibe-layer.vibe-serious { --vibe-tint: rgba(100, 116, 139, 0.14); }
+.vl-vibe-layer.vibe-work { --vibe-tint: rgba(71, 85, 105, 0.12); }
+.vl-vibe-layer.vibe-special { --vibe-tint: rgba(234, 179, 8, 0.16); }
+
+.vl-vibe-particle {
+  position: absolute;
+  bottom: -2rem;
+  opacity: 0;
+  animation-name: vl-drift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+}
+@keyframes vl-drift {
+  0% { transform: translateY(0) rotate(0deg); opacity: 0; }
+  10% { opacity: 0.35; }
+  85% { opacity: 0.25; }
+  100% { transform: translateY(-110vh) rotate(25deg); opacity: 0; }
+}
+
+.vl-flash > div {
+  animation: vl-flash 1.2s ease;
+}
+@keyframes vl-flash {
+  0%, 100% { filter: none; }
+  30% { filter: brightness(1.25) drop-shadow(0 0 6px hsl(var(--p) / 0.6)); }
+}
+
+/* Bottom sheets slide up on phones and pop in on larger screens. */
+.ui-sheet {
+  animation: ui-sheet-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (min-width: 640px) {
+  .ui-sheet { animation: ui-pop-in 160ms ease; }
+}
+@keyframes ui-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.ui-fade {
+  animation: ui-fade-in 160ms ease;
+}
+@keyframes ui-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Clear keyboard focus without showing rings on mouse clicks. */
+:where(button, a, [role="button"], [role="tab"], summary, label[for]):focus-visible {
+  outline: 2px solid hsl(var(--p));
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* Comfortable tap targets and no grey flash on touch devices. */
+@media (hover: none) {
+  button, a { -webkit-tap-highlight-color: transparent; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ui-press,
   .ui-option {
@@ -153,7 +276,12 @@ body {
   .ui-chat-enter,
   .ui-msg-enter,
   .ui-react-pop,
+  .ui-sheet,
+  .ui-fade,
   .typing-dots i {
     animation: none;
+  }
+  .vl-vibe-particle {
+    display: none;
   }
 }

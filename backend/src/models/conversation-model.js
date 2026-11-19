@@ -78,11 +78,20 @@ const conversationSchema = new mongoose.Schema(
     ],
 
     appearance: {
-      wallpaper: { type: String, enum: ["default", "minimal", "soft", "dark"], default: "default" },
+      wallpaper: { type: String, enum: ["default", "minimal", "soft", "dark", "sunset", "ocean", "aurora", "dots", "grid"], default: "default" },
       bubbleStyle: { type: String, enum: ["classic", "rounded", "compact"], default: "classic" },
     },
 
     lockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+
+    pinnedMessages: [
+      {
+        messageId: { type: mongoose.Schema.Types.ObjectId, ref: "Message", required: true },
+        pinnedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        pinnedAt: { type: Date, default: Date.now },
+        _id: false,
+      },
+    ],
     defaultDisappearing: { type: Boolean, default: false },
 
     rituals: [
@@ -121,4 +130,4 @@ const Conversation = mongoose.model(
   conversationSchema
 );
 
-export default Conversation;
+export default Conversation;
