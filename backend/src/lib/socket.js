@@ -12,6 +12,7 @@ import { createRedisSubscriber, getRedis } from "./redis.js";
 import { logger } from "./logger.js";
 import { isObjectId } from "./validate.js";
 import { canInteract } from "./conversation-access.js";
+import { markDelivered } from "./delivery.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -85,6 +86,14 @@ io.on("connection", async (socket) => {
   await addUserSocket(userId, socket.id);
   logger.debug("socket connected", socket.id);
   io.emit("getOnlineUsers", await getOnlineUserIds());
+  // Their device is online and syncing: everything sent to them while away is now delivered.
+  markDelivered(userId, emitToUser).catch((error) => logger.warn("markDelivered failed:", error.message));
+
+  // The app acknowledges each live message it receives.
+  socket.on("messagesDelivered", (payload = {}) => {
+    if (!Array.isArray(payload.messageIds)) return;
+    markDelivered(userId, emitToUser, payload.messageIds).catch(() => {});
+  });
 
   const relayTyping = async (event, payload = {}) => {
     if (!userId || !payload.to || !isObjectId(payload.to)) return;
@@ -119,7 +128,7 @@ io.on("connection", async (socket) => {
     }).select("_id");
     if (!unseen.length) return;
     const messageIds = unseen.map((message) => message._id.toString());
-    await Message.updateMany({ _id: { $in: messageIds } }, { $set: { seen: true } });
+    await Message.updateMany({ _id: { $in: messageIds } }, { $set: { seen: true, delivered: true } });
     emitToUser(peerId, "messagesSeen", { conversationId: conversation._id, messageIds });
   });
 

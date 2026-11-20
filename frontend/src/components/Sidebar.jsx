@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Lock, LogOut, MessageCircle, Search, Settings, User, UserPlus, Users, X } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useMatch, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
@@ -37,6 +37,18 @@ const Sidebar = () => {
   const { appliedAppTheme } = useThemeStore();
   const [query, setQuery] = useState("");
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const navigate = useNavigate();
+  const onProfilePage = Boolean(useMatch("/u/:userId"));
+  // Picking a chat while a profile is open should show that chat, not stay on the profile.
+  const openChat = (user) => {
+    if (onProfilePage) {
+      if (String(selectedUser?._id) !== String(user._id)) setSelectedUser(user);
+      navigate("/");
+      return;
+    }
+    setSelectedUser(user);
+  };
+  const openProfile = (user) => navigate(`/u/${user._id}`);
   const focusSearch = () => document.getElementById("user-search")?.focus();
 
   // Logout sits next to other icons on phones, so ask once instead of logging out on a stray tap.
@@ -149,12 +161,12 @@ const Sidebar = () => {
           const unread = Boolean(chat?.unreadCount);
           return (
             <li key={request?._id || chat?._id || user._id} className="px-1.5">
-              <div className={`flex items-center gap-2 rounded-xl px-2 py-2.5 transition-colors ${selected ? "bg-base-200" : "hover:bg-base-200/70"}`}>
-                <button type="button" onClick={() => setSelectedUser(user)} className="flex min-w-0 flex-1 items-center gap-3 text-left" aria-current={selected ? "true" : undefined}>
-                  <div className="relative shrink-0">
-                    <img src={user.profilePic || "/avatar.svg"} alt="" className="h-12 w-12 rounded-full object-cover" />
-                    {onlineUsers.includes(user._id) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-base-100" />}
-                  </div>
+              <div className={`flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors ${selected ? "bg-base-200" : "hover:bg-base-200/70"}`}>
+                <button type="button" onClick={() => openProfile(user)} className="relative shrink-0 rounded-full" aria-label={`View ${user.fullName}'s profile`} title="View profile">
+                  <img src={user.profilePic || "/avatar.svg"} alt="" className="h-12 w-12 rounded-full object-cover" />
+                  {onlineUsers.includes(user._id) && <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-base-100" />}
+                </button>
+                <button type="button" onClick={() => openChat(user)} className="flex min-w-0 flex-1 items-center gap-3 text-left" aria-current={selected ? "true" : undefined}>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline justify-between gap-2">
                       <span className={`flex min-w-0 items-center gap-1 truncate text-[15px] ${unread ? "font-bold" : "font-semibold"}`}>
@@ -211,12 +223,14 @@ const Sidebar = () => {
             {rejected.map((item) => (
               <li key={item._id} className={selectedUser?._id === item.user?._id ? "bg-base-200" : "hover:bg-base-200/70"}>
                 <div className="flex items-center gap-3 px-3 py-2">
-                  <img src={item.user?.profilePic || "/avatar.svg"} alt="" className="h-9 w-9 rounded-full object-cover opacity-70" />
+                  <button type="button" className="shrink-0 rounded-full" onClick={() => openProfile(item.user)} aria-label={`View ${item.user?.fullName}'s profile`}>
+                    <img src={item.user?.profilePic || "/avatar.svg"} alt="" className="h-9 w-9 rounded-full object-cover opacity-70" />
+                  </button>
                   <span className="min-w-0 flex-1">
                     <b className="block truncate text-sm">{item.user?.fullName}</b>
                     <small className="block truncate text-xs text-base-content/60">They can&apos;t message you</small>
                   </span>
-                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setSelectedUser(item.user)}>Message</button>
+                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => openChat(item.user)}>Message</button>
                 </div>
               </li>
             ))}

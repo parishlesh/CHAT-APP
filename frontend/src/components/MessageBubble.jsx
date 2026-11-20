@@ -308,15 +308,18 @@ const MessageBubble = ({ message, highlighted = false, isPinned = false, peerNam
               {message.edited && <span className="text-[11px] opacity-60">(edited)</span>}
             </>
           )}
-          <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px] opacity-70">
-            <span>{formatMessageTime(message.createdAt)}</span>
-            {message.expiresAt && !message.deleted && <Clock3 size={12} aria-label="Disappearing message" />}
+          <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px]">
+            <span className="opacity-70">{formatMessageTime(message.createdAt)}</span>
+            {message.expiresAt && !message.deleted && <Clock3 size={12} className="opacity-70" aria-label="Disappearing message" />}
             {mine && !message.deleted && (
+              // Sending → ✓ sent → ✓✓ delivered to their device → blue ✓✓ seen
               message.pending
-                ? <Clock3 size={12} aria-label="Sending" />
+                ? <Clock3 size={12} className="opacity-70" aria-label="Sending" />
                 : message.seen
-                ? <CheckCheck size={14} className="text-info" aria-label="Seen" />
-                : <Check size={14} aria-label="Sent" />
+                ? <CheckCheck size={15} strokeWidth={2.5} className="vl-tick-seen" aria-label="Seen" />
+                : message.delivered
+                ? <CheckCheck size={15} className="opacity-70" aria-label="Delivered" />
+                : <Check size={14} className="opacity-70" aria-label="Sent" />
             )}
           </div>
         </div>

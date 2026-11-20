@@ -17,7 +17,8 @@ import {
 } from "../lib/chat-lock.js";
 import bcrypt from "bcryptjs";
 
-const publicUser = "fullName username email profilePic about encryptionPublicKey mood moodUpdatedAt availability lastSeen";
+// Fields other users may see. Email and phone are private and never leave the owner's own account.
+const publicUser = "fullName username profilePic about encryptionPublicKey mood moodUpdatedAt availability lastSeen";
 const replyFields = "senderId text image attachment deleted";
 const pinFields = "senderId text image attachment deleted deletedFor createdAt";
 
@@ -103,7 +104,7 @@ const markConversationSeen = async (conversation, userId) => {
     deleted: false,
   }).select("_id senderId").lean();
   if (!unseen.length) return;
-  await Message.updateMany({ _id: { $in: unseen.map((message) => message._id) } }, { $set: { seen: true } });
+  await Message.updateMany({ _id: { $in: unseen.map((message) => message._id) } }, { $set: { seen: true, delivered: true } });
   const bySender = new Map();
   unseen.forEach((message) => {
     const key = message.senderId.toString();
@@ -738,4 +739,108 @@ export const setChatLockPin = asyncHandler(async (req, res) => {
   user.chatLockPinHash = await hashPin(pin);
   await user.save();
   res.status(200).json({ hasChatLockPin: true });
+});
+
+// ---- Contact profile ----------------------------------------------------------------------
+
+const activeAvailability = (availability) => {
+  if (!availability?.key) return null;
+  if (availability.until && new Date(availability.until) <= new Date()) return null;
+  return { key: availability.key, until: availability.until || null };
+};
+
+const sharedMediaFilter = (conversation, userId, kind) => {
+  const base = {
+    conversationId: conversation._id,
+    deleted: false,
+    kind: "user",
+    deletedFor: { $ne: userId },
+  };
+  const cleared = clearedAtFor(conversation, userId);
+  if (cleared) base.createdAt = { $gt: cleared };
+  if (kind === "files") return { ...base, "attachment.kind": "file" };
+  if (kind === "voice") return { ...base, "attachment.kind": "audio" };
+  // Photos and videos, including older messages that only have the legacy `image` field.
+  return { ...base, $or: [{ "attachment.kind": { $in: ["image", "video"] } }, { image: { $nin: ["", null] }, attachment: null }] };
+};
+
+// What someone sees when they open another person's profile. Mirrors common chat-app privacy:
+// if they blocked you, you only see their name; mood, status and last seen are hidden on
+// rejected requests in both directions.
+export const getUserProfile = asyncHandler(async (req, res) => {
+  const targetId = requireObjectId(req.params.userId, "user id");
+  const me = req.user._id;
+  const target = await User.findById(targetId)
+    .select("fullName username profilePic about mood moodUpdatedAt availability lastSeen createdAt blockedUsers")
+    .lean();
+  if (!target) throw new AppError(404, "User not found.");
+  const isSelf = String(targetId) === String(me);
+  const conversation = isSelf ? null : await Conversation.findOne(pairQuery(me, targetId));
+  const blockedMe = !isSelf && hasBlocked(target, me);
+  const blockedByMe = !isSelf && hasBlocked(req.user, targetId);
+  const statusHidden = blockedMe || conversation?.status === "declined";
+
+  let mediaCounts = null;
+  const locked = Boolean(conversation && isLockedFor(conversation, me));
+  const mediaHidden = locked && !hasValidUnlock(req, conversation._id);
+  if (conversation && !mediaHidden) {
+    const [media, files, voice] = await Promise.all(
+      ["media", "files", "voice"].map((kind) => Message.countDocuments(sharedMediaFilter(conversation, me, kind)))
+    );
+    mediaCounts = { media, files, voice };
+  }
+
+  res.status(200).json({
+    profile: {
+      _id: target._id,
+      fullName: target.fullName,
+      username: target.username,
+      profilePic: blockedMe ? "" : target.profilePic || "",
+      about: blockedMe ? "" : target.about || "",
+      mood: statusHidden ? null : target.mood || null,
+      availability: statusHidden ? null : activeAvailability(target.availability),
+      lastSeen: statusHidden ? null : target.lastSeen || null,
+      joinedAt: target.createdAt,
+      statusHidden,
+      limited: blockedMe,
+    },
+    isSelf,
+    relationship: conversation ? {
+      conversationId: conversation._id,
+      status: conversation.status,
+      initiatedBy: initiatorId(conversation),
+      conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
+      relationshipType: conversation.relationshipType || "",
+      relationshipCustom: conversation.relationshipCustom || "",
+      muted: isMuted(conversation, me),
+      locked,
+      since: conversation.acceptedAt || conversation.createdAt,
+    } : null,
+    blockedByMe,
+    mediaCounts,
+    mediaHidden,
+  });
+});
+
+// Shared photos/videos, documents or voice notes in your chat with someone, newest first.
+export const getSharedMedia = asyncHandler(async (req, res) => {
+  const targetId = requireObjectId(req.params.userId, "user id");
+  const kind = ["media", "files", "voice"].includes(req.query.kind) ? req.query.kind : "media";
+  const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 60);
+  const conversation = await Conversation.findOne(pairQuery(req.user._id, targetId));
+  if (!conversation) return res.status(200).json({ items: [], hasMore: false });
+  assertUnlocked(req, conversation);
+  const filter = sharedMediaFilter(conversation, req.user._id, kind);
+  if (req.query.before) {
+    requireObjectId(req.query.before, "cursor");
+    const cursor = await Message.findOne({ _id: req.query.before, conversationId: conversation._id }).select("createdAt").lean();
+    if (!cursor) throw new AppError(400, "Invalid cursor.");
+    filter.createdAt = { ...(filter.createdAt || {}), $lt: cursor.createdAt };
+  }
+  const page = await Message.find(filter)
+    .select("senderId createdAt attachment image")
+    .sort({ createdAt: -1 })
+    .limit(limit + 1)
+    .lean();
+  res.status(200).json({ items: page.slice(0, limit), hasMore: page.length > limit });
 });

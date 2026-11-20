@@ -159,6 +159,25 @@ const chatSessionState = {
   unlockTokens: {}, lockGate: false,
 };
 
+// ---- Sending & receipts ----------------------------------------------------------------------
+let tempCounter = 0;
+let sendQueue = Promise.resolve();
+
+// A "delivered" or "seen" receipt can arrive before our own copy of the message is in the list
+// (e.g. while the send request is still finishing). Remember it and apply it when the message lands.
+const earlyReceipts = new Map();
+const rememberReceipt = (id, patch) => {
+  const key = String(id);
+  earlyReceipts.set(key, { ...(earlyReceipts.get(key) || {}), ...patch });
+  if (earlyReceipts.size > 500) earlyReceipts.delete(earlyReceipts.keys().next().value);
+};
+const withEarlyReceipts = (message) => {
+  const receipt = earlyReceipts.get(String(message?._id));
+  if (!receipt) return message;
+  earlyReceipts.delete(String(message._id));
+  return { ...message, ...receipt };
+};
+
 // ---- Speed helpers -------------------------------------------------------------------------
 
 // Recently opened chats (already decrypted) kept in memory so switching back is instant.
@@ -406,15 +425,18 @@ export const useChatStore = create((set, get) => ({
       return false;
     }
   },
-  sendMessage: async (messageData) => {
-    const { selectedUser, messages, replyingTo, sending } = get();
+  // Sending is optimistic and queued: the bubble appears and the composer clears instantly,
+  // you can keep sending, and messages still reach the server one after another, in order.
+  sendMessage: (messageData) => {
+    const { selectedUser, replyingTo } = get();
     const me = useAuth.getState().authUser;
-    if (!selectedUser || sending || !composerAllowed(get())) return false;
+    if (!selectedUser || !composerAllowed(get())) return Promise.resolve(false);
     if (isBlockedByMe(selectedUser._id)) {
       toast.error("You blocked this contact. Unblock them to send a message.");
-      return false;
+      return Promise.resolve(false);
     }
-    const tempId = `temp-${Date.now()}`;
+    tempCounter += 1;
+    const tempId = `temp-${Date.now()}-${tempCounter}`;
     const pending = {
       _id: tempId,
       senderId: me._id,
@@ -424,12 +446,14 @@ export const useChatStore = create((set, get) => ({
       attachment: messageData.attachment || null,
       createdAt: new Date().toISOString(),
       seen: false,
+      delivered: false,
       pending: true,
       decryptStatus: "decrypted",
       deleted: false,
       replyPreview: replyingTo ? { ...replyingTo, displayText: replyingTo.displayText } : null,
     };
-    set({ messages: [...messages, pending], sending: true, replyingTo: null });
+    set((state) => ({ messages: [...state.messages, pending], replyingTo: null }));
+    const deliver = async () => {
     try {
       sendLog("started", {
         recipientId: String(selectedUser._id),
@@ -461,11 +485,11 @@ export const useChatStore = create((set, get) => ({
       }
       sendLog("recipient-key", { recipientPublicKeyPresent: Boolean(peerPublic) });
 
-      const recipient = { ...get().selectedUser, encryptionPublicKey: peerPublic || get().selectedUser?.encryptionPublicKey };
+      const recipient = { ...selectedUser, encryptionPublicKey: peerPublic || selectedUser.encryptionPublicKey };
       if (peerPublic) {
-        set((state) => ({
-          selectedUser: { ...state.selectedUser, encryptionPublicKey: peerPublic },
-        }));
+        set((state) => (idsEqual(state.selectedUser?._id, selectedUser._id)
+          ? { selectedUser: { ...state.selectedUser, encryptionPublicKey: peerPublic } }
+          : state));
       }
 
       sendLog("encryption-started", { encryptionStatus: getEncryptionStatus() });
@@ -482,13 +506,12 @@ export const useChatStore = create((set, get) => ({
         replyTo: replyingTo?._id || null,
       });
       sendLog("transport-succeeded", { messageId: String(data?._id || "") });
-      const hydrated = await hydrate(data, get().selectedUser);
+      const hydrated = withEarlyReceipts(await hydrate(data, recipient));
       const keepPlaintext = hydrated.decryptStatus !== "decrypted" && messageData.text;
       const nextMessage = keepPlaintext
         ? { ...hydrated, displayText: messageData.text, decryptStatus: "decrypted" }
         : hydrated;
       set((state) => ({
-        sending: false,
         messages: hasMessage(state.messages, nextMessage._id)
           ? state.messages.filter((message) => message._id !== tempId)
           : state.messages.map((message) => message._id === tempId ? nextMessage : message),
@@ -511,10 +534,14 @@ export const useChatStore = create((set, get) => ({
           status: error?.response?.status,
         });
       }
-      set((state) => ({ sending: false, messages: state.messages.filter((message) => message._id !== tempId) }));
+      set((state) => ({ messages: state.messages.filter((message) => message._id !== tempId) }));
       toast.error(sendFailureMessage(error));
       return false;
     }
+    };
+    const run = sendQueue.then(deliver);
+    sendQueue = run.catch(() => false);
+    return run;
   },
   editMessage: async (messageId, text) => {
     if (!composerAllowed(get())) return;
@@ -628,8 +655,10 @@ export const useChatStore = create((set, get) => ({
       }
       const me = useAuth.getState().authUser;
       const selected = get().selectedUser;
-      if (hasMessage(get().messages, message._id)) return;
       const mine = idsEqual(message.senderId, me?._id);
+      // Tell the sender it reached this device (double grey tick), whether or not the chat is open.
+      if (!mine && message.kind !== "system" && !message.delivered) socket.emit("messagesDelivered", { messageIds: [String(message._id)] });
+      if (hasMessage(get().messages, message._id)) return;
       const inView = selected && (idsEqual(message.senderId, selected._id) || (mine && idsEqual(message.receiverId, selected._id)));
       if (inView) {
         if (!mine) socket.emit("markSeen", { peerId: message.senderId });
@@ -642,7 +671,7 @@ export const useChatStore = create((set, get) => ({
             return { messages: [...state.messages, stub] };
           });
         }
-        const hydrated = await hydrate(message, selected);
+        const hydrated = withEarlyReceipts(await hydrate(message, selected));
         if (get().selectedUser?._id !== selectedId) return;
         set((state) => {
           if (hasMessage(state.messages, message._id) && pendingIndex < 0) {
@@ -669,7 +698,15 @@ export const useChatStore = create((set, get) => ({
         if (!chat?.muted) notifyIncomingMessage({ title: "New message", body: "You have a new message", tag: String(message._id) });
       }
     });
-    socket.off("messagesSeen").on("messagesSeen", ({ messageIds }) => set((state) => ({ messages: state.messages.map((message) => messageIds.includes(String(message._id)) || messageIds.includes(message._id) ? { ...message, seen: true } : message) })));
+    const applyReceipt = (messageIds = [], patch) => {
+      const ids = new Set(messageIds.map(String));
+      const present = new Set(get().messages.map((message) => String(message._id)));
+      ids.forEach((id) => { if (!present.has(id)) rememberReceipt(id, patch); });
+      set((state) => ({ messages: state.messages.map((message) => ids.has(String(message._id)) ? { ...message, ...patch } : message) }));
+    };
+    // ✓ sent → ✓✓ delivered (reached their device) → blue ✓✓ seen
+    socket.off("messagesDelivered").on("messagesDelivered", ({ messageIds }) => applyReceipt(messageIds, { delivered: true }));
+    socket.off("messagesSeen").on("messagesSeen", ({ messageIds }) => applyReceipt(messageIds, { delivered: true, seen: true }));
     socket.off("messageEdited").on("messageEdited", async (message) => {
       if (!get().messages.some((item) => idsEqual(item._id, message._id))) return;
       const peer = get().selectedUser;
@@ -799,7 +836,7 @@ export const useChatStore = create((set, get) => ({
       set({ rituals: payload.rituals || [] });
     });
   },
-  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated", "conversationMetaUpdated", "conversationModeUpdated", "conversationStatusUpdated", "messageReactionAdded", "messageReactionUpdated", "messageReactionRemoved", "conversationMemoryCreated", "conversationMemoryDeleted", "ritualUpdated", "messageHidden", "conversationPinsUpdated", "userLastSeen", "conversationCleared"].forEach((event) => useAuth.getState().socket?.off(event)),
+  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated", "conversationMetaUpdated", "conversationModeUpdated", "conversationStatusUpdated", "messageReactionAdded", "messageReactionUpdated", "messageReactionRemoved", "conversationMemoryCreated", "conversationMemoryDeleted", "ritualUpdated", "messageHidden", "conversationPinsUpdated", "userLastSeen", "conversationCleared", "messagesDelivered"].forEach((event) => useAuth.getState().socket?.off(event)),
   resetChatState: () => {
     get().unsubscribeFromMessages();
     recentChats.clear();
@@ -1226,6 +1263,8 @@ export const useChatStore = create((set, get) => ({
       toast.error(error.response?.data?.message || "Could not update block.");
     }
   },
+  // Unlock header for a chat that's currently open and unlocked (used by the contact profile).
+  getUnlockHeaders: (userId) => unlockHeaderFor(get(), conversationIdForUser(get(), userId)),
   setDraft: (userId, text) => {
     if (!userId) return;
     set((state) => {

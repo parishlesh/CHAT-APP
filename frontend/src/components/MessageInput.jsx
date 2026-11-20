@@ -76,7 +76,8 @@ const MessageInput = () => {
   const lastTypingPing = useRef(0);
   const textareaRef = useRef(null);
   const uploadAbort = useRef(null);
-  const busy = sending || progress != null;
+  // Only an upload in progress blocks sending; text messages queue up instantly.
+  const busy = progress != null;
 
   const stopTyping = () => {
     clearTimeout(typingTimer.current);
@@ -258,13 +259,20 @@ const MessageInput = () => {
         return;
       }
     }
-    const sent = await sendMessage({ text: text.trim(), attachment, expiresAt: expiresAt() });
-    if (sent === false) return;
+    // Clear the box right away; the message shows as "sending" in the chat meanwhile.
+    const outgoing = text.trim();
+    const peerId = selectedUser?._id;
     stopTyping();
     setText("");
-    setDraft(selectedUser?._id, "");
+    setDraft(peerId, "");
     clearPending();
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+    textareaRef.current?.focus();
+    const sent = await sendMessage({ text: outgoing, attachment, expiresAt: expiresAt() });
+    if (sent === false && outgoing) {
+      // Put the text back so nothing is lost, unless the user has already typed something new.
+      setText((current) => (current ? current : outgoing));
+    }
   };
 
   const sendVoiceNote = async (file, seconds) => {

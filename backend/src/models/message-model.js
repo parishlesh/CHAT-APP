@@ -59,6 +59,10 @@ const messageSchema = new mongoose.Schema(
       default: false,
     },
 
+    // Reached the recipient's device (double grey tick). Seen implies delivered.
+    delivered: { type: Boolean, default: false },
+    deliveredAt: { type: Date, default: null },
+
     edited: { type: Boolean, default: false },
     deleted: { type: Boolean, default: false },
 
@@ -94,6 +98,7 @@ const messageSchema = new mongoose.Schema(
 messageSchema.index({ text: "text" });
 messageSchema.index({ conversationId: 1, createdAt: -1 });
 messageSchema.index({ receiverId: 1, seen: 1, deleted: 1, conversationId: 1 });
+messageSchema.index({ receiverId: 1, delivered: 1 });
 messageSchema.index({ "attachment.publicId": 1 }, { sparse: true });
 
 const Message = mongoose.model(

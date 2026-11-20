@@ -13,7 +13,7 @@ import {
 } from "../config/conversationExtras";
 import { requestNotificationPermission } from "../lib/notify";
 import OptionButton from "./OptionButton";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 const SHEET =
   "ui-sheet z-30 overflow-y-auto overscroll-contain border border-base-300 bg-base-100 pb-1 shadow-xl max-h-[min(85dvh,36rem)] w-full rounded-t-2xl fixed inset-x-0 bottom-0 safe-bottom sm:absolute sm:inset-auto sm:right-2 sm:top-14 sm:w-80 sm:max-h-[80vh] sm:rounded-xl sm:pt-1";
@@ -45,6 +45,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   const [busy, setBusy] = useState(false);
   const [customLabel, setCustomLabel] = useState(relationshipCustom);
   const [confirmBlock, setConfirmBlock] = useState(false);
+  const navigate = useNavigate();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pinDraft, setPinDraft] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
@@ -320,6 +321,18 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   return (
     <div className={SHEET}>
       <SheetHeader title="Chat settings" subtitle={selectedUser?.fullName} onClose={onClose} />
+      <button
+        type="button"
+        className="ui-press mx-2 mb-1 flex w-[calc(100%-1rem)] items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-base-200"
+        onClick={() => { onClose(); navigate(`/u/${selectedUser._id}`); }}
+      >
+        <img src={selectedUser?.profilePic || "/avatar.svg"} alt="" className="h-10 w-10 rounded-full object-cover" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold">{selectedUser?.fullName}</span>
+          <span className="block text-xs text-primary">View profile</span>
+        </span>
+        <ChevronRight size={16} className="shrink-0 opacity-60" />
+      </button>
       <Section title="🎭 Conversation">
         <Row label="Vibe" value={`${vibe.emoji} ${vibe.label}`} onClick={() => { onClose(); openVibePicker(); }} />
         <Row label="Relationship type" value={relationship ? `${relationship.emoji} ${relationship.key === "custom" && relationshipCustom ? relationshipCustom : relationship.label}` : "Set"} onClick={() => setView("relationship")} />

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ArrowLeft, MoreVertical, Search } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
@@ -13,6 +14,7 @@ const ChatHeader = () => {
   const { conversationVibe, relationshipType, relationshipCustom, theirMode, selectedUser, setSelectedUser, typing, setMessageSearchOpen } = useChatStore();
   const { onlineUsers } = useAuth();
   const { theirs, theirAvailability } = useConversationThemeStore();
+  const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const theirMood = getMoodMeta(theirs?.mood);
   const vibe = getVibeMeta(conversationVibe);
@@ -59,12 +61,12 @@ const ChatHeader = () => {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        {/* Tapping the contact opens chat settings, like contact info in other chat apps. */}
+        {/* Tapping the contact opens their profile (contact info), like other chat apps. */}
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1 pr-2 text-left hover:bg-base-200/60 sm:gap-3"
-          onClick={() => setSettingsOpen(true)}
-          aria-label={`Chat settings for ${selectedUser.fullName}`}
+          onClick={() => navigate(`/u/${selectedUser._id}`)}
+          aria-label={`View ${selectedUser.fullName}'s profile`}
         >
           <span className="relative shrink-0">
             <img

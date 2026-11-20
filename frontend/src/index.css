@@ -266,6 +266,12 @@ html[data-vl-font] select {
   75% { transform: translateX(6px); }
 }
 
+/* Read receipts: the blue double tick must stay visible on any accent colour. */
+.vl-tick-seen {
+  color: #53bdeb;
+  filter: drop-shadow(0 0 0.5px rgba(0, 0, 0, 0.45));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ui-press,
   .ui-option {

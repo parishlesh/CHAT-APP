@@ -313,6 +313,7 @@ export const cacheEncryptedMessages = async (peerId, messages) => {
     receiverId: message.receiverId,
     createdAt: message.createdAt,
     seen: message.seen,
+    delivered: Boolean(message.delivered || message.seen),
     edited: message.edited,
     deleted: message.deleted,
     kind: message.kind,

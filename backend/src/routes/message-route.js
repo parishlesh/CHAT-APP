@@ -1,11 +1,13 @@
 import express from "express";
 import protectRoute from "../middleware/auth-middleware.js";
 import { pinLimiter, searchLimiter, sendLimiter } from "../middleware/rate-limit.js";
-import { acceptRequest, deleteMessage, editMessage, getChats, getConversationDetails, getConversationMood, getMessages, getRequests, getRejected, getUsersForSidebar, rejectRequest, removeMessageReaction, getUploadSignature, pinMessage, unpinMessage, setBlocked, deleteConversation, unlockConversation, setChatLockPin, searchConversationMessages, searchUsers, sendMessage, updateConversationMood, updateConversationMute, updateConversationVibe, upsertMessageReaction } from "../controllers/message-controller.js";
+import { acceptRequest, deleteMessage, editMessage, getChats, getConversationDetails, getConversationMood, getMessages, getRequests, getRejected, getUsersForSidebar, rejectRequest, removeMessageReaction, getUploadSignature, pinMessage, unpinMessage, setBlocked, deleteConversation, unlockConversation, setChatLockPin, getUserProfile, getSharedMedia, searchConversationMessages, searchUsers, sendMessage, updateConversationMood, updateConversationMute, updateConversationVibe, upsertMessageReaction } from "../controllers/message-controller.js";
 import { createMemory, deleteMemory, deleteRitual, listMemories, patchConversationMeta, updateAvailability, updateParticipantMode, upsertRitual } from "../controllers/conversation-features-controller.js";
 
 const router = express.Router();
 router.get("/users", protectRoute, getUsersForSidebar);
+router.get("/users/:userId/profile", protectRoute, getUserProfile);
+router.get("/users/:userId/media", protectRoute, getSharedMedia);
 router.get("/search", protectRoute, searchLimiter, searchUsers);
 router.get("/conversations", protectRoute, getChats);
 router.get("/requests", protectRoute, getRequests);

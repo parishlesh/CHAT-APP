@@ -59,7 +59,11 @@ const App = () => {
       >
         <Suspense fallback={<PageFallback />}>
         <Routes>
-          <Route path="/" element={authUser ? <Home /> : <Navigate to="/login" />} />
+          {/* Home stays mounted between the chat list and a contact's profile, so switching is instant. */}
+          <Route element={authUser ? <Home /> : <Navigate to="/login" />}>
+            <Route index element={null} />
+            <Route path="u/:userId" element={null} />
+          </Route>
           <Route path="/signup" element={!authUser ? <Signup /> : <Navigate to="/" />} />
           <Route path="/login" element={!authUser ? <Login /> : <Navigate to="/" />} />
           <Route path="/forgot-password" element={!authUser ? <ForgotPassword /> : <Navigate to="/" />} />
