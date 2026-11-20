@@ -2,7 +2,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-  Check, CheckCheck, Clock3, Copy, Download, FileText, Forward, Maximize2, MoreVertical, Pencil, Pin, PinOff, Play, Reply, Star, Trash2,
+  AlertCircle, Check, CheckCheck, Clock3, RotateCcw, Copy, Download, FileText, Forward, Maximize2, MoreVertical, Pencil, Pin, PinOff, Play, Reply, Star, Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../store/useAuth";
@@ -102,6 +102,7 @@ const MessageBubble = ({ message, highlighted = false, isPinned = false, peerNam
   const {
     setEditingMessage, setReplyingTo, deleteMessage, bubbleStyle, reactToMessage, clearReaction,
     createMemory, conversationStatus, conversationInitiatedBy, pinMessage, unpinMessage, openViewer, setForwarding,
+    retryMessage, discardFailedMessage,
   } = useChatStore(useShallow((state) => ({
     setEditingMessage: state.setEditingMessage,
     setReplyingTo: state.setReplyingTo,
@@ -114,6 +115,8 @@ const MessageBubble = ({ message, highlighted = false, isPinned = false, peerNam
     conversationInitiatedBy: state.conversationInitiatedBy,
     pinMessage: state.pinMessage,
     unpinMessage: state.unpinMessage,
+    retryMessage: state.retryMessage,
+    discardFailedMessage: state.discardFailedMessage,
     openViewer: state.openViewer,
     setForwarding: state.setForwarding,
   })));
@@ -296,6 +299,14 @@ const MessageBubble = ({ message, highlighted = false, isPinned = false, peerNam
                 </button>
               )}
               {media && <MediaContent media={media} mine={mine} onOpen={() => openViewer({ ...media, senderName: mine ? "You" : peerName, createdAt: message.createdAt })} />}
+              {message.pending && message.uploadProgress != null && (
+                <div className="mb-1 flex items-center gap-2" aria-label={`Uploading ${message.uploadProgress}%`}>
+                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-black/15">
+                    <span className="block h-full rounded-full bg-current transition-[width] duration-200" style={{ width: `${Math.max(4, message.uploadProgress)}%` }} />
+                  </span>
+                  <span className="text-[10px] tabular-nums opacity-80">{message.uploadProgress < 100 ? `${message.uploadProgress}%` : "Sending…"}</span>
+                </div>
+              )}
               {decrypting && (
                 <p className="vl-msg-text leading-snug opacity-70">Please wait while we are fetching your chat…</p>
               )}
@@ -313,7 +324,9 @@ const MessageBubble = ({ message, highlighted = false, isPinned = false, peerNam
             {message.expiresAt && !message.deleted && <Clock3 size={12} className="opacity-70" aria-label="Disappearing message" />}
             {mine && !message.deleted && (
               // Sending → ✓ sent → ✓✓ delivered to their device → blue ✓✓ seen
-              message.pending
+              message.failed
+                ? <AlertCircle size={14} className="text-error" aria-label="Not sent" />
+                : message.pending
                 ? <Clock3 size={12} className="opacity-70" aria-label="Sending" />
                 : message.seen
                 ? <CheckCheck size={15} strokeWidth={2.5} className="vl-tick-seen" aria-label="Seen" />
@@ -323,6 +336,18 @@ const MessageBubble = ({ message, highlighted = false, isPinned = false, peerNam
             )}
           </div>
         </div>
+
+        {message.failed && (
+          <div className={`mt-1 flex items-center gap-2 text-xs ${mine ? "justify-end" : ""}`} role="alert">
+            <span className="text-error" title={message.failureReason}>Not sent</span>
+            <button type="button" className="ui-press inline-flex items-center gap-1 rounded-full bg-base-200 px-2 py-0.5 font-medium hover:bg-base-300" onClick={() => retryMessage(message._id)}>
+              <RotateCcw size={12} /> Retry
+            </button>
+            <button type="button" className="ui-press rounded-full px-2 py-0.5 text-base-content/60 hover:bg-base-200" onClick={() => discardFailedMessage(message._id)}>
+              Delete
+            </button>
+          </div>
+        )}
 
         {!message.deleted && groupedReactions.length > 0 && (
           <div className={`-mt-1 flex flex-wrap gap-1 ${mine ? "justify-end" : ""}`}>

@@ -5,7 +5,7 @@ import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKe
 import { notifyIncomingMessage } from "../lib/notify";
 import { getVibeMeta } from "../config/conversationVibes";
 import { canComposeInConversation } from "../lib/conversationAccess";
-import { mediaLabel } from "../lib/media";
+import { mediaLabel, uploadMedia } from "../lib/media";
 import { useAuth } from "./useAuth";
 import { useConversationThemeStore } from "./useConversationThemeStore";
 
@@ -162,6 +162,13 @@ const chatSessionState = {
 // ---- Sending & receipts ----------------------------------------------------------------------
 let tempCounter = 0;
 let sendQueue = Promise.resolve();
+// What's needed to retry a failed send (kept outside React state because it may hold a File).
+const retryPayloads = new Map();
+
+const describeSendError = (error) => {
+  if (error?.name === "CanceledError" || error?.code === "ERR_CANCELED") return "Upload cancelled.";
+  return error?.response?.data?.error?.message || sendFailureMessage(error);
+};
 
 // A "delivered" or "seen" receipt can arrive before our own copy of the message is in the list
 // (e.g. while the send request is still finishing). Remember it and apply it when the message lands.
@@ -187,7 +194,7 @@ const rememberChat = (peerId, messages, hasMore) => {
   if (!peerId) return;
   const key = String(peerId);
   recentChats.delete(key);
-  const settled = messages.filter((message) => !message.pending && !String(message._id).startsWith("temp-"));
+  const settled = messages.filter((message) => message.failed || (!message.pending && !String(message._id).startsWith("temp-")));
   if (!settled.length) return;
   recentChats.set(key, { messages: settled, hasMore });
   if (recentChats.size > RECENT_CHAT_LIMIT) recentChats.delete(recentChats.keys().next().value);
@@ -358,7 +365,7 @@ export const useChatStore = create((set, get) => ({
       const fresh = new Set(hydrated.map((message) => String(message._id)));
       const newest = hydrated[hydrated.length - 1]?.createdAt;
       const live = get().messages.filter((message) => !fresh.has(String(message._id))
-        && (message.pending || (newest && new Date(message.createdAt) > new Date(newest))));
+        && (message.pending || message.failed || (newest && new Date(message.createdAt) > new Date(newest))));
       set({ messages: [...hydrated, ...live], hasMore: page.hasMore, isMessageLoading: false });
       set((state) => ({
         chatList: state.chatList.map((chat) => idsEqual(chat.user?._id, userId) ? { ...chat, unreadCount: 0 } : chat),
@@ -428,7 +435,10 @@ export const useChatStore = create((set, get) => ({
   // Sending is optimistic and queued: the bubble appears and the composer clears instantly,
   // you can keep sending, and messages still reach the server one after another, in order.
   sendMessage: (messageData) => {
-    const { selectedUser, replyingTo } = get();
+    const { selectedUser } = get();
+    // A retry carries its original reply target; a new message uses whatever is being replied to now.
+    const retrying = Object.prototype.hasOwnProperty.call(messageData, "replyingTo");
+    const replyingTo = retrying ? messageData.replyingTo : get().replyingTo;
     const me = useAuth.getState().authUser;
     if (!selectedUser || !composerAllowed(get())) return Promise.resolve(false);
     if (isBlockedByMe(selectedUser._id)) {
@@ -437,13 +447,26 @@ export const useChatStore = create((set, get) => ({
     }
     tempCounter += 1;
     const tempId = `temp-${Date.now()}-${tempCounter}`;
+    const { upload } = messageData;
+    // Photos/videos/files/voice notes show straight away from the local file while they upload.
+    const localAttachment = upload ? {
+      kind: upload.kind,
+      url: upload.previewUrl || URL.createObjectURL(upload.file),
+      name: upload.file.name || "",
+      bytes: upload.file.size,
+      duration: upload.meta?.duration ?? null,
+      width: upload.meta?.width ?? null,
+      height: upload.meta?.height ?? null,
+      local: true,
+    } : null;
     const pending = {
       _id: tempId,
       senderId: me._id,
       receiverId: selectedUser._id,
       displayText: messageData.text || "",
       image: messageData.image || "",
-      attachment: messageData.attachment || null,
+      attachment: localAttachment || messageData.attachment || null,
+      uploadProgress: upload ? 0 : null,
       createdAt: new Date().toISOString(),
       seen: false,
       delivered: false,
@@ -452,9 +475,22 @@ export const useChatStore = create((set, get) => ({
       deleted: false,
       replyPreview: replyingTo ? { ...replyingTo, displayText: replyingTo.displayText } : null,
     };
-    set((state) => ({ messages: [...state.messages, pending], replyingTo: null }));
+    set((state) => ({ messages: [...state.messages, pending], ...(retrying ? {} : { replyingTo: null }) }));
+    retryPayloads.set(tempId, { messageData, replyingTo });
+    const patchTemp = (patch) => set((state) => ({
+      messages: state.messages.map((message) => message._id === tempId ? { ...message, ...patch } : message),
+    }));
     const deliver = async () => {
     try {
+      let attachment = messageData.attachment || null;
+      if (upload) {
+        attachment = await uploadMedia(upload.file, {
+          kind: upload.kind,
+          meta: upload.meta,
+          onProgress: (progress) => patchTemp({ uploadProgress: progress }),
+        });
+        patchTemp({ uploadProgress: 100 });
+      }
       sendLog("started", {
         recipientId: String(selectedUser._id),
         conversationId: conversationIdForUser(get(), selectedUser._id),
@@ -500,8 +536,12 @@ export const useChatStore = create((set, get) => ({
         transport: "HTTP",
       });
       sendLog("transport-started", { url: `/messages/send/${selectedUser._id}` });
+      const body = { ...messageData };
+      delete body.upload;
+      delete body.replyingTo;
       const { data } = await axiosInstance.post(`/messages/send/${selectedUser._id}`, {
-        ...messageData,
+        ...body,
+        attachment,
         text,
         replyTo: replyingTo?._id || null,
       });
@@ -516,6 +556,8 @@ export const useChatStore = create((set, get) => ({
           ? state.messages.filter((message) => message._id !== tempId)
           : state.messages.map((message) => message._id === tempId ? nextMessage : message),
       }));
+      retryPayloads.delete(tempId);
+      if (localAttachment) setTimeout(() => URL.revokeObjectURL(localAttachment.url), 30000);
       return true;
     } catch (error) {
       sendLog("failed", {
@@ -534,14 +576,33 @@ export const useChatStore = create((set, get) => ({
           status: error?.response?.status,
         });
       }
-      set((state) => ({ messages: state.messages.filter((message) => message._id !== tempId) }));
-      toast.error(sendFailureMessage(error));
+      // Keep the message in the chat as "Not sent" with Retry, instead of pushing text back into the box.
+      const reason = describeSendError(error);
+      patchTemp({ pending: false, failed: true, failureReason: reason, uploadProgress: null });
+      toast.error(reason);
       return false;
     }
     };
     const run = sendQueue.then(deliver);
     sendQueue = run.catch(() => false);
     return run;
+  },
+  retryMessage: (tempId) => {
+    const saved = retryPayloads.get(tempId);
+    const failed = get().messages.find((message) => message._id === tempId);
+    if (!saved || !failed) return;
+    retryPayloads.delete(tempId);
+    const { messageData, replyingTo } = saved;
+    // Re-send as a fresh message; reuse the local preview so media doesn't flicker.
+    const upload = messageData.upload ? { ...messageData.upload, previewUrl: failed.attachment?.url } : undefined;
+    set((state) => ({ messages: state.messages.filter((message) => message._id !== tempId) }));
+    get().sendMessage({ ...messageData, upload, replyingTo: replyingTo || null });
+  },
+  discardFailedMessage: (tempId) => {
+    const failed = get().messages.find((message) => message._id === tempId);
+    if (failed?.attachment?.local) URL.revokeObjectURL(failed.attachment.url);
+    retryPayloads.delete(tempId);
+    set((state) => ({ messages: state.messages.filter((message) => message._id !== tempId) }));
   },
   editMessage: async (messageId, text) => {
     if (!composerAllowed(get())) return;

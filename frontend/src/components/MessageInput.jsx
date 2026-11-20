@@ -7,7 +7,7 @@ import { useAuth } from "../store/useAuth";
 import { isEncryptedText } from "../lib/encryption";
 import { canComposeInConversation } from "../lib/conversationAccess";
 import {
-  compressPhoto, formatBytes, formatDuration, kindForFile, mediaLabel, probeMedia, uploadMedia, validateFileForUpload,
+  compressPhoto, formatBytes, formatDuration, kindForFile, mediaLabel, probeMedia, validateFileForUpload,
 } from "../lib/media";
 // Loaded the first time they're opened, not with the chat screen.
 const CameraCapture = lazy(() => import("./CameraCapture"));
@@ -16,9 +16,8 @@ const EmojiPicker = lazy(() => import("./EmojiPicker"));
 
 const TYPING_PING_MS = 2000;
 
-const AttachmentPreview = ({ pending, progress, onRemove, onCancelUpload }) => {
+const AttachmentPreview = ({ pending, onRemove }) => {
   const { kind, url, file, meta } = pending;
-  const uploading = progress != null;
   return (
     <div className="mb-2 flex items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-2">
       <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-base-300">
@@ -34,18 +33,12 @@ const AttachmentPreview = ({ pending, progress, onRemove, onCancelUpload }) => {
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{kind === "file" ? file.name : mediaLabel({ kind })}</p>
         <p className="text-xs text-base-content/60">{formatBytes(file.size)}{kind === "file" ? "" : " · add a caption below"}</p>
-        {uploading && (
-          <div className="mt-1.5 flex items-center gap-2">
-            <progress className="progress progress-primary h-1.5 flex-1" value={progress} max="100" />
-            <span className="w-9 text-right text-[11px] tabular-nums">{progress}%</span>
-          </div>
-        )}
       </div>
       <button
         type="button"
-        onClick={uploading ? onCancelUpload : onRemove}
+        onClick={onRemove}
         className="shrink-0 rounded-full p-1.5 hover:bg-base-300"
-        aria-label={uploading ? "Cancel upload" : "Remove attachment"}
+        aria-label="Remove attachment"
       >
         <X size={16} />
       </button>
@@ -59,7 +52,6 @@ const MessageInput = () => {
     return (peer && drafts[String(peer._id)]) || "";
   });
   const [pending, setPending] = useState(null); // { file, kind, url, meta }
-  const [progress, setProgress] = useState(null);
   const [disappearing, setDisappearing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -75,9 +67,7 @@ const MessageInput = () => {
   const typingTimer = useRef(null);
   const lastTypingPing = useRef(0);
   const textareaRef = useRef(null);
-  const uploadAbort = useRef(null);
-  // Only an upload in progress blocks sending; text messages queue up instantly.
-  const busy = progress != null;
+
 
   const stopTyping = () => {
     clearTimeout(typingTimer.current);
@@ -145,7 +135,6 @@ const MessageInput = () => {
   }, [text, editingMessage, selectedUser?._id, setDraft]);
 
   useEffect(() => () => {
-    uploadAbort.current?.abort();
     setPending((prev) => {
       if (prev?.url) URL.revokeObjectURL(prev.url);
       return null;
@@ -222,23 +211,6 @@ const MessageInput = () => {
 
   const expiresAt = () => (disappearing ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null);
 
-  const uploadPending = async (item) => {
-    const controller = new AbortController();
-    uploadAbort.current = controller;
-    setProgress(0);
-    try {
-      return await uploadMedia(item.file, { kind: item.kind, meta: item.meta, signal: controller.signal, onProgress: setProgress });
-    } finally {
-      uploadAbort.current = null;
-      setProgress(null);
-    }
-  };
-
-  const describeUploadError = (error) => {
-    if (error?.name === "CanceledError" || error?.code === "ERR_CANCELED") return null;
-    return error?.response?.data?.error?.message || error?.response?.data?.message || error?.message || "Upload failed.";
-  };
-
   const handleSendMessage = async (event) => {
     event?.preventDefault();
     if (!canComposeInConversation(conversationStatus, conversationInitiatedBy, authUser?._id)) return;
@@ -248,43 +220,28 @@ const MessageInput = () => {
       setText(useChatStore.getState().drafts[String(selectedUser?._id)] || "");
       return;
     }
-    if (busy || (!text.trim() && !pending)) return;
-    let attachment = null;
-    if (pending) {
-      try {
-        attachment = await uploadPending(pending);
-      } catch (error) {
-        const message = describeUploadError(error);
-        if (message) toast.error(message);
-        return;
-      }
-    }
-    // Clear the box right away; the message shows as "sending" in the chat meanwhile.
     const outgoing = text.trim();
-    const peerId = selectedUser?._id;
+    const item = pending;
+    if (!outgoing && !item) return;
+    // Empty the box immediately. Sending, uploading, delivery and "seen" all happen in the chat
+    // bubble from here on; a failure shows there as "Not sent" with Retry, never back in the box.
     stopTyping();
     setText("");
-    setDraft(peerId, "");
-    clearPending();
+    setDraft(selectedUser?._id, "");
+    setPending(null); // the bubble now owns the preview URL
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     textareaRef.current?.focus();
-    const sent = await sendMessage({ text: outgoing, attachment, expiresAt: expiresAt() });
-    if (sent === false && outgoing) {
-      // Put the text back so nothing is lost, unless the user has already typed something new.
-      setText((current) => (current ? current : outgoing));
-    }
+    sendMessage({
+      text: outgoing,
+      upload: item ? { file: item.file, kind: item.kind, meta: item.meta, previewUrl: item.url } : undefined,
+      expiresAt: expiresAt(),
+    });
   };
 
-  const sendVoiceNote = async (file, seconds) => {
+  const sendVoiceNote = (file, seconds) => {
     setRecording(false);
     stopTyping();
-    try {
-      const attachment = await uploadPending({ file, kind: "audio", meta: { duration: seconds } });
-      await sendMessage({ text: "", attachment, expiresAt: expiresAt() });
-    } catch (error) {
-      const message = describeUploadError(error);
-      if (message) toast.error(message);
-    }
+    sendMessage({ text: "", upload: { file, kind: "audio", meta: { duration: seconds } }, expiresAt: expiresAt() });
   };
 
   const onKeyDown = (event) => {
@@ -320,18 +277,7 @@ const MessageInput = () => {
         </div>
       )}
       {pending && !editingMessage && (
-        <AttachmentPreview
-          pending={pending}
-          progress={progress}
-          onRemove={clearPending}
-          onCancelUpload={() => uploadAbort.current?.abort()}
-        />
-      )}
-      {!pending && progress != null && (
-        <div className="mb-2 flex items-center gap-2 px-1 text-xs">
-          <span>Sending voice message…</span>
-          <progress className="progress progress-primary h-1.5 flex-1" value={progress} max="100" />
-        </div>
+        <AttachmentPreview pending={pending} onRemove={clearPending} />
       )}
 
       <input ref={mediaInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={onPickFile} />
@@ -366,7 +312,6 @@ const MessageInput = () => {
                   aria-label="Attach"
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
-                  disabled={busy}
                   onClick={() => { setMenuOpen((open) => !open); setEmojiOpen(false); }}
                 >
                   <Paperclip size={20} />
@@ -409,7 +354,6 @@ const MessageInput = () => {
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}
                 placeholder={pending ? "Add a caption…" : "Type a message"}
-                disabled={progress != null}
                 className="max-h-32 min-h-[40px] w-full resize-none rounded-2xl border border-base-300 bg-base-200 px-3 py-2 text-base leading-5 outline-none focus:border-primary disabled:opacity-60 sm:text-sm"
               />
               {disappearing && !editingMessage && (
@@ -431,7 +375,6 @@ const MessageInput = () => {
                 type="button"
                 className="mb-0.5 rounded-full bg-primary p-2 text-primary-content ui-press disabled:opacity-40"
                 aria-label="Record voice message"
-                disabled={busy}
                 onClick={() => { setRecording(true); setMenuOpen(false); setEmojiOpen(false); }}
               >
                 <Mic size={20} />
@@ -441,7 +384,7 @@ const MessageInput = () => {
                 type="submit"
                 className="mb-0.5 rounded-full bg-primary p-2 text-primary-content ui-press disabled:opacity-40"
                 aria-label={editingMessage ? "Save edit" : "Send"}
-                disabled={busy || (!text.trim() && !pending)}
+                disabled={!text.trim() && !pending}
               >
                 <Send size={20} />
               </button>
