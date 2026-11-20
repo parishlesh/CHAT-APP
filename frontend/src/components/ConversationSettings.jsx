@@ -1,6 +1,7 @@
 /* eslint-disable react/prop-types */
 import { useEffect, useState } from "react";
-import { ArrowLeft, Ban, Bell, BellOff, ChevronRight, Search, Smile, X } from "lucide-react";
+import { ArrowLeft, Ban, Bell, BellOff, ChevronRight, Lock, LockOpen, Search, Smile, Trash2, X } from "lucide-react";
+import PinInput from "./PinInput";
 import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
 import { useConversationThemeStore } from "../store/useConversationThemeStore";
@@ -36,6 +37,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
     conversationVibe, relationshipType, relationshipCustom, myMode, appearance, conversationLocked,
     defaultDisappearing, rituals, memories, openVibePicker, patchConversationMeta, updateMyMode,
     updateAvailability, loadMemories, deleteMemory, upsertRitual, deleteRitual, selectedUser, setBlocked,
+    lockChat, removeChatLock, setChatLockPin, deleteChat,
   } = useChatStore();
   const { mine, muted, openMoodPicker, setConversationMute } = useConversationThemeStore();
   const { authUser } = useAuth();
@@ -43,6 +45,10 @@ const ConversationSettings = ({ onClose, onSearch }) => {
   const [busy, setBusy] = useState(false);
   const [customLabel, setCustomLabel] = useState(relationshipCustom);
   const [confirmBlock, setConfirmBlock] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pinDraft, setPinDraft] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [pinError, setPinError] = useState("");
   const blockedByMe = (authUser?.blockedUsers || []).some((id) => String(id) === String(selectedUser?._id));
   const myMood = getMoodMeta(mine?.mood);
   const vibe = getVibeMeta(conversationVibe);
@@ -199,6 +205,84 @@ const ConversationSettings = ({ onClose, onSearch }) => {
     );
   }
 
+  if (view === "lock") {
+    const hasPin = Boolean(authUser?.hasChatLockPin);
+    const confirming = pinConfirm.length >= 4;
+    // Three cases: remove an existing lock (needs PIN), create a PIN first, or just lock.
+    if (conversationLocked) {
+      return (
+        <Panel onBack={() => setView("menu")} title="Remove chat lock">
+          <form className="space-y-4 px-4 py-4 text-center" onSubmit={(event) => { event.preventDefault(); }}>
+            <p className="text-sm text-base-content/70">Enter your PIN to stop locking this chat.</p>
+            <PinInput
+              value={pinDraft}
+              onChange={(value) => { setPinDraft(value); setPinError(""); }}
+              onComplete={(value) => run(async () => {
+                const result = await removeChatLock(value);
+                if (result.ok) { setPinDraft(""); setView("menu"); } else { setPinError(result.message); setPinDraft(""); }
+              })}
+              error={pinError}
+            />
+            <button
+              type="button"
+              className="btn btn-primary btn-sm w-full normal-case"
+              disabled={busy || pinDraft.length < 4}
+              onClick={() => run(async () => {
+                const result = await removeChatLock(pinDraft);
+                if (result.ok) { setPinDraft(""); setView("menu"); } else { setPinError(result.message); setPinDraft(""); }
+              })}
+            >
+              Remove lock
+            </button>
+          </form>
+        </Panel>
+      );
+    }
+    if (!hasPin) {
+      return (
+        <Panel onBack={() => { setView("menu"); setPinDraft(""); setPinConfirm(""); setPinError(""); }} title="Create a chat PIN">
+          <form
+            className="space-y-3 px-4 py-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (pinDraft !== pinConfirm) { setPinError("PINs don't match."); return; }
+              run(async () => {
+                const saved = await setChatLockPin({ pin: pinDraft });
+                if (!saved.ok) { setPinError(saved.message); return; }
+                setPinDraft(""); setPinConfirm("");
+                await lockChat();
+              });
+            }}
+          >
+            <p className="text-sm text-base-content/70">You&apos;ll use this PIN to open any chat you lock, on every device. 4–6 digits.</p>
+            <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={6} autoFocus placeholder="New PIN" value={pinDraft}
+              onChange={(event) => { setPinDraft(event.target.value.replace(/\D/g, "").slice(0, 6)); setPinError(""); }}
+              className="input input-bordered w-full tracking-[0.4em]" aria-label="New PIN" />
+            <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={6} placeholder="Confirm PIN" value={pinConfirm}
+              onChange={(event) => { setPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 6)); setPinError(""); }}
+              className="input input-bordered w-full tracking-[0.4em]" aria-label="Confirm PIN" />
+            {pinError && <p className="text-sm text-error">{pinError}</p>}
+            <button type="submit" className="btn btn-primary btn-sm w-full normal-case" disabled={busy || pinDraft.length < 4 || !confirming}>
+              Save PIN and lock chat
+            </button>
+          </form>
+        </Panel>
+      );
+    }
+    return (
+      <Panel onBack={() => setView("menu")} title="Lock this chat?">
+        <div className="space-y-3 px-4 py-4">
+          <p className="text-sm text-base-content/70">
+            Its messages and previews will be hidden until you enter your PIN. {selectedUser?.fullName} won&apos;t be told.
+          </p>
+          <button type="button" className="btn btn-primary btn-sm w-full gap-1.5 normal-case" disabled={busy} onClick={() => run(lockChat)}>
+            <Lock size={14} /> Lock chat
+          </button>
+        </div>
+      </Panel>
+    );
+  }
+
   if (view === "story") {
     const grouped = groupMemories(memories);
     return (
@@ -265,11 +349,10 @@ const ConversationSettings = ({ onClose, onSearch }) => {
         <button type="button" className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { setConversationMute(selectedUser._id, !muted); }}>
           <span className="flex items-center gap-2">{muted ? <Bell size={16} /> : <BellOff size={16} />} {muted ? "Unmute" : "Mute"}</span>
         </button>
-        <button type="button" className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => run(() => patchConversationMeta({ locked: !conversationLocked }))}>
-          <span>🔒 Lock conversation</span>
-          <span className="text-xs opacity-70">{conversationLocked ? "On" : "Off"}</span>
+        <button type="button" className="ui-press flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-base-200" onClick={() => { setPinDraft(""); setPinConfirm(""); setPinError(""); setView("lock"); }}>
+          <span className="flex items-center gap-2">{conversationLocked ? <LockOpen size={16} /> : <Lock size={16} />} {conversationLocked ? "Remove chat lock" : "Lock chat"}</span>
+          <span className="text-xs opacity-70">{conversationLocked ? "PIN on" : "Off"}</span>
         </button>
-        <p className="px-3 pb-2 text-[10px] leading-snug opacity-50">Lock is a local reminder only. It is not biometric or device authentication.</p>
         <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-base-200" onClick={async () => { onClose(); await requestNotificationPermission(); }}>
           <Bell size={16} /> Desktop alerts
         </button>
@@ -281,7 +364,7 @@ const ConversationSettings = ({ onClose, onSearch }) => {
             <Ban size={16} /> Unblock {selectedUser?.fullName}
           </button>
         ) : confirmBlock ? (
-          <div className="px-3 py-2">
+          <div className="px-3 py-2" ref={(node) => node?.scrollIntoView({ block: "nearest", behavior: "smooth" })}>
             <p className="text-xs">Block {selectedUser?.fullName}? They won&apos;t be able to message you, and you won&apos;t be able to message them.</p>
             <div className="mt-2 flex justify-end gap-2">
               <button type="button" className="btn btn-ghost btn-xs" onClick={() => setConfirmBlock(false)}>Cancel</button>
@@ -291,6 +374,19 @@ const ConversationSettings = ({ onClose, onSearch }) => {
         ) : (
           <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-error hover:bg-base-200" onClick={() => setConfirmBlock(true)}>
             <Ban size={16} /> Block {selectedUser?.fullName}
+          </button>
+        )}
+        {confirmDelete ? (
+          <div className="px-3 py-2" ref={(node) => node?.scrollIntoView({ block: "nearest", behavior: "smooth" })}>
+            <p className="text-xs">Delete this chat? Its messages are removed from your devices only — {selectedUser?.fullName} keeps their copy. If either of you sends a new message, the chat comes back empty.</p>
+            <div className="mt-2 flex justify-end gap-2">
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setConfirmDelete(false)}>Cancel</button>
+              <button type="button" className="btn btn-error btn-xs" disabled={busy} onClick={() => run(async () => { if (await deleteChat()) onClose(); })}>Delete chat</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="ui-press flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-error hover:bg-base-200" onClick={() => setConfirmDelete(true)}>
+            <Trash2 size={16} /> Delete chat
           </button>
         )}
       </Section>

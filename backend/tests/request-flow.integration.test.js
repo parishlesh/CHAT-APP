@@ -172,9 +172,11 @@ test("rejecting notifies the sender and locks them out of every action", async (
   ]);
   attempts.forEach((attempt, index) => assert.equal(attempt.status, 403, `back door #${index} should be refused`));
 
-  // Purely personal settings still work.
+  // Purely personal settings still work (locking a chat needs a PIN first).
+  assert.equal((await asha.call("PUT", "/messages/lock/pin", { pin: "2468" })).status, 200);
   const lock = await asha.call("PATCH", `/messages/conversation/${ashaBen}/meta`, { locked: true });
   assert.equal(lock.status, 200);
+  assert.equal((await asha.call("PATCH", `/messages/conversation/${ashaBen}/meta`, { locked: false, pin: "2468" })).status, 200);
 
   const conversation = await Conversation.findById(ashaBen);
   assert.equal(conversation.status, "declined");

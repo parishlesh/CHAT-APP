@@ -52,19 +52,31 @@ export const useAuth = create((set, get) => ({
     encryptionFailure: null,
     canResetEncryption: false,
 
+    finishEncryptionSetup: async (sessionUser, password, epoch) => {
+        try {
+            const user = await ensureEncryptionKey(sessionUser, axiosInstance, password);
+            if (get().authEpoch !== epoch) return;
+            set({ authUser: { ...get().authUser, ...user }, ...encryptionState() });
+        } catch {
+            if (get().authEpoch !== epoch) return;
+            set({ ...encryptionState() });
+        }
+        import("./useChatStore").then(({ useChatStore }) => {
+            useChatStore.getState().retryPendingDecryption({ includeFailed: true });
+        });
+    },
+
     checkAuth: async () => {
         const epoch = get().authEpoch;
         try {
             const res = await axiosInstance.get("/auth/check")
             if (get().authEpoch !== epoch) return;
 
-            const user = await ensureEncryptionKey(res.data, axiosInstance);
-            if (get().authEpoch !== epoch) return;
-            set({ authUser: user, ...encryptionState() })
+            // Render chats as soon as the session is confirmed instead of after key restore:
+            // the chat list and messages download while keys load, saving a full round trip.
+            set({ authUser: res.data, ...encryptionState() })
             get().connectSocket()
-            import("./useChatStore").then(({ useChatStore }) => {
-              useChatStore.getState().retryPendingDecryption();
-            });
+            get().finishEncryptionSetup(res.data, undefined, epoch);
 
         } catch (error) {
             if (get().authEpoch !== epoch) return;
@@ -118,12 +130,13 @@ export const useAuth = create((set, get) => ({
         try {
             const res = await axiosInstance.post("/auth/login", data);
             setSessionWrapPassword(data.password);
-            const user = await ensureEncryptionKey(res.data, axiosInstance, data.password);
             await clearAccountStores();
-            set({ authUser: user, ...encryptionState() });
+            // Show the app straight away; keys are restored in parallel and decryption waits for them.
+            const epoch = get().authEpoch;
+            set({ authUser: res.data, ...encryptionState() });
             toast.success("Logged in successfully");
-
             get().connectSocket();
+            get().finishEncryptionSetup(res.data, data.password, epoch);
 
         } catch (error) {
             toast.error(error.response?.data?.message || "Login failed.");
@@ -240,17 +253,23 @@ export const useAuth = create((set, get) => ({
         socket.on("getOnlineUsers", (userIds) => {
           set({ onlineUsers: userIds });
         });
+        let connectedOnce = false;
         socket.on("connect", () => {
           if (import.meta.env.DEV) {
             console.info("[socket]", { connected: true, id: socket.id, userId: String(authUser._id) });
           }
+          const reconnect = connectedOnce;
+          connectedOnce = true;
           import("./useChatStore").then(({ useChatStore }) => {
             const chat = useChatStore.getState();
             chat.subscribeToMessages();
-            chat.getChats();
-            chat.getRequests();
-            chat.getRejected();
-            if (chat.selectedUser?._id) chat.getMessages(chat.selectedUser._id);
+            // First connect right after the page loaded: the lists were just fetched, so skip if fresh.
+            // After a real reconnect, refetch everything we might have missed while offline.
+            const freshness = reconnect ? undefined : { maxAgeMs: 5000 };
+            chat.getChats(freshness);
+            chat.getRequests(freshness);
+            chat.getRejected(freshness);
+            if (reconnect && chat.selectedUser?._id) chat.getMessages(chat.selectedUser._id);
           });
         });
         socket.on("disconnect", (reason) => {

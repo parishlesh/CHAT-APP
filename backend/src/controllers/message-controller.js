@@ -12,6 +12,10 @@ import { REQUEST_DECLINED_EVENT, REQUEST_DECLINED_TEXT, assertCanSendMessage, in
 import { describeEncryptedText } from "../lib/envelope.js";
 import { createUploadSignature, destroyAttachment, validateAttachment } from "../lib/media.js";
 import { MAX_PINNED_MESSAGES } from "../lib/catalog.js";
+import {
+  assertUnlocked, clearedAtFor, hasValidUnlock, hashPin, isLockedFor, issueUnlockToken, pinMatches, validatePin,
+} from "../lib/chat-lock.js";
+import bcrypt from "bcryptjs";
 
 const publicUser = "fullName username email profilePic about encryptionPublicKey mood moodUpdatedAt availability lastSeen";
 const replyFields = "senderId text image attachment deleted";
@@ -89,49 +93,60 @@ export const getUsersForSidebar = asyncHandler(async (req, res) => {
   res.status(200).json(users);
 });
 
+// Marks the other person's messages as read and tells them. Runs alongside the page query
+// so opening a chat costs one round of database work instead of three in a row.
+const markConversationSeen = async (conversation, userId) => {
+  const unseen = await Message.find({
+    conversationId: conversation._id,
+    receiverId: userId,
+    seen: false,
+    deleted: false,
+  }).select("_id senderId").lean();
+  if (!unseen.length) return;
+  await Message.updateMany({ _id: { $in: unseen.map((message) => message._id) } }, { $set: { seen: true } });
+  const bySender = new Map();
+  unseen.forEach((message) => {
+    const key = message.senderId.toString();
+    if (!bySender.has(key)) bySender.set(key, []);
+    bySender.get(key).push(message._id.toString());
+  });
+  bySender.forEach((messageIds, senderId) => {
+    emitToUser(senderId, "messagesSeen", { conversationId: conversation._id, messageIds });
+  });
+};
+
 export const getMessages = asyncHandler(async (req, res) => {
   requireObjectId(req.params.id, "user id");
   const conversation = await Conversation.findOne(pairQuery(req.user._id, req.params.id));
   if (!conversation) return res.status(200).json({ messages: [], hasMore: false });
+  assertUnlocked(req, conversation);
 
   const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
   const filter = { conversationId: conversation._id, deletedFor: { $ne: req.user._id } };
+  const createdAt = {};
+  const cleared = clearedAtFor(conversation, req.user._id);
+  if (cleared) createdAt.$gt = cleared;
+  let seenWork = Promise.resolve();
   if (req.query.before) {
     requireObjectId(req.query.before, "cursor");
-    const cursor = await Message.findOne({ _id: req.query.before, conversationId: conversation._id }).select("createdAt");
+    const cursor = await Message.findOne({ _id: req.query.before, conversationId: conversation._id }).select("createdAt").lean();
     if (!cursor) throw new AppError(400, "Invalid cursor.");
-    filter.createdAt = { $lt: cursor.createdAt };
+    createdAt.$lt = cursor.createdAt;
   } else {
-    const unseen = await Message.find({
-      conversationId: conversation._id,
-      receiverId: req.user._id,
-      seen: false,
-      deleted: false,
-    }).select("_id senderId");
-    if (unseen.length) {
-      await Message.updateMany({ _id: { $in: unseen.map((message) => message._id) } }, { $set: { seen: true } });
-      const bySender = new Map();
-      unseen.forEach((message) => {
-        const key = message.senderId.toString();
-        if (!bySender.has(key)) bySender.set(key, []);
-        bySender.get(key).push(message._id.toString());
-      });
-      bySender.forEach((messageIds, senderId) => {
-        emitToUser(senderId, "messagesSeen", { conversationId: conversation._id, messageIds });
-      });
-    }
+    seenWork = markConversationSeen(conversation, req.user._id);
   }
+  if (Object.keys(createdAt).length) filter.createdAt = createdAt;
 
-  const page = await Message.find(filter)
-    .populate("replyTo", replyFields)
-    .sort({ createdAt: -1 })
-    .limit(limit + 1);
+  const [page] = await Promise.all([
+    Message.find(filter).populate("replyTo", replyFields).sort({ createdAt: -1 }).limit(limit + 1).lean(),
+    seenWork,
+  ]);
   const hasMore = page.length > limit;
   const messages = page.slice(0, limit).reverse();
   res.status(200).json({
     messages,
     hasMore,
-    conversation: { _id: conversation._id, status: conversation.status, initiatedBy: initiatorId(conversation) },
+    conversation: { _id: conversation._id, status: conversation.status, initiatedBy: initiatorId(conversation), locked: isLockedFor(conversation, req.user._id) },
   });
 });
 
@@ -331,30 +346,50 @@ export const deleteMessage = asyncHandler(async (req, res) => {
 });
 
 export const getChats = asyncHandler(async (req, res) => {
+  const me = req.user._id;
   const conversations = await Conversation.find({
-    participants: req.user._id,
+    participants: me,
     $or: [
       { status: "accepted" },
-      { status: { $in: ["pending", "declined"] }, initiatedBy: req.user._id },
+      { status: { $in: ["pending", "declined"] }, initiatedBy: me },
     ],
   })
     .populate("participants", publicUser).populate("lastMessage").sort({ updatedAt: -1 }).limit(200);
-  const unread = await Message.aggregate([
-    { $match: { conversationId: { $in: conversations.map((item) => item._id) }, receiverId: req.user._id, seen: false, deleted: false } },
+
+  // Chats this user deleted stay hidden until a newer message arrives.
+  const visible = conversations.filter((conversation) => {
+    const cleared = clearedAtFor(conversation, me);
+    if (!cleared) return true;
+    const last = conversation.lastMessage?.createdAt;
+    return Boolean(last && new Date(last) > cleared);
+  });
+
+  const unreadMatch = visible.map((conversation) => {
+    const cleared = clearedAtFor(conversation, me);
+    return cleared ? { conversationId: conversation._id, createdAt: { $gt: cleared } } : { conversationId: conversation._id };
+  });
+  const unread = unreadMatch.length ? await Message.aggregate([
+    { $match: { receiverId: me, seen: false, deleted: false, deletedFor: { $ne: me }, $or: unreadMatch } },
     { $group: { _id: "$conversationId", count: { $sum: 1 } } },
-  ]);
+  ]) : [];
   const unreadByConversation = Object.fromEntries(unread.map((item) => [item._id.toString(), item.count]));
-  res.status(200).json(conversations.map((conversation) => ({
-    _id: conversation._id,
-    user: otherParticipant(conversation, req.user._id),
-    lastMessage: conversation.lastMessage,
-    updatedAt: conversation.updatedAt,
-    unreadCount: unreadByConversation[conversation._id.toString()] || 0,
-    muted: isMuted(conversation, req.user._id),
-    status: conversation.status,
-    initiatedBy: conversation.initiatedBy,
-    conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
-  })));
+  res.status(200).json(visible.map((conversation) => {
+    const locked = isLockedFor(conversation, me);
+    const last = conversation.lastMessage;
+    return {
+      _id: conversation._id,
+      user: otherParticipant(conversation, me),
+      // A locked chat's list entry never carries message content, only when it happened.
+      lastMessage: locked && last ? { _id: last._id, createdAt: last.createdAt, senderId: last.senderId, locked: true } : last,
+      updatedAt: conversation.updatedAt,
+      unreadCount: unreadByConversation[conversation._id.toString()] || 0,
+      muted: isMuted(conversation, me),
+      locked,
+      status: conversation.status,
+      initiatedBy: conversation.initiatedBy,
+      conversationVibe: ALLOWED_VIBES.includes(conversation.conversationVibe) ? conversation.conversationVibe : "neutral",
+    };
+  }));
 });
 
 // Requests this user rejected. Only they can reopen these chats, by sending a message.
@@ -491,9 +526,17 @@ const serializeConversation = (conversation, myId) => {
   };
 };
 
+// Locked chats only reveal their content (pins) to requests carrying an unlock token.
+const serializeConversationFor = (req, conversation) => {
+  const payload = serializeConversation(conversation, req.user._id);
+  if (isLockedFor(conversation, req.user._id) && !hasValidUnlock(req, conversation._id)) payload.pinnedMessages = [];
+  return payload;
+};
+
 const serializePins = (conversation, myId) => (conversation.pinnedMessages || [])
   .filter((pin) => pin.messageId && typeof pin.messageId === "object" && !pin.messageId.deleted
-    && !(pin.messageId.deletedFor || []).some((id) => String(id) === String(myId)))
+    && !(pin.messageId.deletedFor || []).some((id) => String(id) === String(myId))
+    && !(clearedAtFor(conversation, myId) && new Date(pin.messageId.createdAt) <= clearedAtFor(conversation, myId)))
   .map((pin) => ({
     messageId: String(pin.messageId._id),
     pinnedBy: pin.pinnedBy ? String(pin.pinnedBy) : null,
@@ -523,7 +566,7 @@ const loadParticipantConversation = async (conversationId, userId) => {
 
 export const getConversationDetails = asyncHandler(async (req, res) => {
   const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
-  res.status(200).json(serializeConversation(conversation, req.user._id));
+  res.status(200).json(serializeConversationFor(req, conversation));
 });
 
 export const updateConversationVibe = asyncHandler(async (req, res) => {
@@ -549,7 +592,7 @@ export const updateConversationVibe = asyncHandler(async (req, res) => {
   res.status(200).json(payload);
 });
 
-export { serializeConversation, loadParticipantConversation, participantId };
+export { serializeConversation, serializeConversationFor, loadParticipantConversation, participantId };
 
 export const updateConversationMute = asyncHandler(async (req, res) => {
   const muted = Boolean(req.body.muted);
@@ -658,4 +701,41 @@ export const setBlocked = asyncHandler(async (req, res) => {
   const update = blocked ? { $addToSet: { blockedUsers: otherId } } : { $pull: { blockedUsers: otherId } };
   const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select("blockedUsers");
   res.status(200).json({ blockedUsers: (user.blockedUsers || []).map((id) => String(id)) });
+});
+
+// "Delete chat": hides the history for this user only. The other person keeps their messages,
+// and the chat comes back (empty) if either of you sends something new.
+export const deleteConversation = asyncHandler(async (req, res) => {
+  const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertUnlocked(req, conversation);
+  const at = new Date();
+  await Conversation.updateOne(
+    { _id: conversation._id },
+    { $set: { [`clearedAt.${String(req.user._id)}`]: at }, $pull: { lockedBy: req.user._id } }
+  );
+  // Clearing doesn't count as reading: leave read receipts alone, just stop counting them as unread.
+  emitToUser(req.user._id, "conversationCleared", { conversationId: conversation._id, clearedAt: at });
+  res.status(200).json({ ok: true, conversationId: conversation._id, clearedAt: at });
+});
+
+export const unlockConversation = asyncHandler(async (req, res) => {
+  const conversation = await loadParticipantConversation(req.params.conversationId, req.user._id);
+  if (!isLockedFor(conversation, req.user._id)) return res.status(200).json({ token: null, locked: false });
+  const user = await User.findById(req.user._id).select("chatLockPinHash");
+  if (!(await pinMatches(user, req.body.pin))) throw new AppError(401, "Wrong PIN.");
+  res.status(200).json({ ...issueUnlockToken(req.user._id, conversation._id), locked: true });
+});
+
+// Set or change the chat-lock PIN. Changing needs the current PIN, or the account password if it was forgotten.
+export const setChatLockPin = asyncHandler(async (req, res) => {
+  const pin = validatePin(req.body.pin);
+  const user = await User.findById(req.user._id).select("password chatLockPinHash");
+  if (user.chatLockPinHash) {
+    const viaPin = req.body.currentPin != null && (await pinMatches(user, req.body.currentPin));
+    const viaPassword = !viaPin && req.body.password && (await bcrypt.compare(String(req.body.password), user.password));
+    if (!viaPin && !viaPassword) throw new AppError(401, "Enter your current PIN or account password.");
+  }
+  user.chatLockPinHash = await hashPin(pin);
+  await user.save();
+  res.status(200).json({ hasChatLockPin: true });
 });

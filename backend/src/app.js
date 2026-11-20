@@ -2,6 +2,7 @@ import express from "express";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import compression from "compression";
 import authRoutes from "./routes/auth-route.js";
 import messageRoute from "./routes/message-route.js";
 import { app, server } from "./lib/socket.js";
@@ -36,6 +37,8 @@ export function configureApp() {
     allowedHeaders: ["Content-Type", "Authorization"],
   }));
 
+  // Chat lists and message pages are mostly repetitive JSON; gzip cuts them to a fraction on slow networks.
+  app.use(compression({ threshold: 1024 }));
   app.use(express.json({ limit: "12mb" }));
   app.use(express.urlencoded({ limit: "12mb", extended: true }));
   app.use(cookieParser());

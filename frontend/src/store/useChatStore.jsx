@@ -1,7 +1,7 @@
 import toast from "react-hot-toast";
 import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
-import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKey, toPublicJwk, waitForEncryptionInit, cacheEncryptedMessages, readCachedMessages, getEncryptionStatus, isEncryptionReady, getEncryptionFailure } from "../lib/encryption";
+import { decryptMessage, encryptText, isEncryptedText, resolveConversationPeerKey, toPublicJwk, waitForEncryptionInit, cacheEncryptedMessages, readCachedMessages, getEncryptionStatus, isEncryptionReady, getEncryptionFailure, clearDecryptCache } from "../lib/encryption";
 import { notifyIncomingMessage } from "../lib/notify";
 import { getVibeMeta } from "../config/conversationVibes";
 import { canComposeInConversation } from "../lib/conversationAccess";
@@ -93,6 +93,7 @@ const hydrate = async (message, peer) => {
 const lastPreview = async (chat, me) => {
   const last = chat.lastMessage;
   if (!last) return "";
+  if (last.locked || chat.locked) return "🔒 Locked chat";
   if (last.deleted) return "This message was deleted";
   if (last.kind === "system" || last.systemEvent) return last.text || "This user has rejected your conversation request.";
   const media = last.attachment?.url ? mediaLabel(last.attachment) : last.image ? "📷 Photo" : "";
@@ -155,6 +156,64 @@ const chatSessionState = {
   conversationStatus: null, conversationInitiatedBy: null, openConversationId: null, requestBusy: false,
   drafts: {},
   pinnedMessages: [], viewer: null, queuedFile: null, forwarding: null,
+  unlockTokens: {}, lockGate: false,
+};
+
+// ---- Speed helpers -------------------------------------------------------------------------
+
+// Recently opened chats (already decrypted) kept in memory so switching back is instant.
+const RECENT_CHAT_LIMIT = 10;
+const recentChats = new Map();
+const rememberChat = (peerId, messages, hasMore) => {
+  if (!peerId) return;
+  const key = String(peerId);
+  recentChats.delete(key);
+  const settled = messages.filter((message) => !message.pending && !String(message._id).startsWith("temp-"));
+  if (!settled.length) return;
+  recentChats.set(key, { messages: settled, hasMore });
+  if (recentChats.size > RECENT_CHAT_LIMIT) recentChats.delete(recentChats.keys().next().value);
+};
+
+// Several components and the socket "connect" handler ask for the same lists at the same moment.
+// Share the request that's already running and skip refetches of data that is only seconds old.
+const inflight = new Map();
+const fetchedAt = new Map();
+const fetchOnce = (key, fn, { maxAgeMs = 0, force = false } = {}) => {
+  if (maxAgeMs && Date.now() - (fetchedAt.get(key) || 0) < maxAgeMs) return Promise.resolve();
+  // force: something changed after the running request started, so run once more when it finishes.
+  if (inflight.has(key)) return force ? inflight.get(key).then(() => fetchOnce(key, fn)) : inflight.get(key);
+  const run = Promise.resolve().then(fn).finally(() => {
+    inflight.delete(key);
+    fetchedAt.set(key, Date.now());
+  });
+  inflight.set(key, run);
+  return run;
+};
+
+const unlockHeaderFor = (state, conversationId) => {
+  const entry = conversationId ? state.unlockTokens[String(conversationId)] : null;
+  if (!entry || new Date(entry.expiresAt).getTime() < Date.now() + 5000) return {};
+  return { "x-chat-unlock": entry.token };
+};
+
+const chatEntryFor = (state, userId) => state.chatList.find((chat) => idsEqual(chat.user?._id, userId));
+
+// Leaving a locked chat locks it again (its unlock token is dropped), like other chat apps.
+const relockedTokens = (state, conversationId) => {
+  if (!conversationId || !state.unlockTokens[String(conversationId)]) return state.unlockTokens;
+  const next = { ...state.unlockTokens };
+  delete next[String(conversationId)];
+  return next;
+};
+
+const quickPreview = (chat) => {
+  const last = chat.lastMessage;
+  if (!last) return "";
+  if (last.locked || chat.locked) return "🔒 Locked chat";
+  if (last.deleted) return "This message was deleted";
+  if (last.kind === "system" || last.systemEvent) return last.text || "This user has rejected your conversation request.";
+  if (!isEncryptedText(last.text)) return null; // cheap to compute exactly
+  return "…";
 };
 
 const isBlockedByMe = (userId) => (useAuth.getState().authUser?.blockedUsers || []).some((id) => idsEqual(id, userId));
@@ -167,24 +226,39 @@ const hydratePins = (pins, peer) => Promise.all((pins || []).map(async (pin) => 
 export const useChatStore = create((set, get) => ({
   ...chatSessionState, loadToken: 0,
   getUsers: async () => {},
-  getChats: async () => {
+  getChats: (options) => fetchOnce("chats", async () => {
     const ownerId = useAuth.getState().authUser?._id;
     try {
       const { data } = await axiosInstance.get("/messages/conversations");
       if (useAuth.getState().authUser?._id !== ownerId) return;
       const me = useAuth.getState().authUser;
-      const chats = await Promise.all(data.map(async (chat) => ({
-        ...chat,
-        lastPreview: await lastPreview(chat, me),
-      })));
+      // Paint the list right away, reusing previews we already decrypted; fill in the rest after.
+      const previous = new Map(get().chatList.map((chat) => [String(chat._id), chat]));
+      const needsDecrypt = [];
+      const quick = data.map((chat) => {
+        const prior = previous.get(String(chat._id));
+        if (prior && !prior.lastMessage?.stale && String(prior.lastMessage?._id || "") === String(chat.lastMessage?._id || "") && prior.lastPreview && prior.lastPreview !== "…") {
+          return { ...chat, lastPreview: prior.lastPreview };
+        }
+        const cheap = quickPreview(chat);
+        if (cheap === "…") needsDecrypt.push(chat);
+        return { ...chat, lastPreview: cheap ?? chat.lastMessage?.text ?? "" };
+      });
+      set({ chatList: sortChats(quick), chatsLoaded: true });
+      if (!needsDecrypt.length) return;
+      const decrypted = new Map(await Promise.all(needsDecrypt.map(async (chat) => [String(chat._id), await lastPreview(chat, me)])));
       if (useAuth.getState().authUser?._id !== ownerId) return;
-      set({ chatList: sortChats(chats), chatsLoaded: true });
+      set((state) => ({
+        chatList: state.chatList.map((chat) => decrypted.has(String(chat._id)) && chat.lastPreview === "…"
+          ? { ...chat, lastPreview: decrypted.get(String(chat._id)) }
+          : chat),
+      }));
     } catch (error) {
       set({ chatsLoaded: true });
       toast.error(error.response?.data?.message || "Failed to fetch chats.");
     }
-  },
-  getRequests: async () => {
+  }, options),
+  getRequests: (options) => fetchOnce("requests", async () => {
     const ownerId = useAuth.getState().authUser?._id;
     try {
       const { data } = await axiosInstance.get("/messages/requests");
@@ -192,8 +266,8 @@ export const useChatStore = create((set, get) => ({
       set({ requests: data });
     }
     catch (error) { toast.error(error.response?.data?.message || "Failed to fetch requests."); }
-  },
-  getRejected: async () => {
+  }, options),
+  getRejected: (options) => fetchOnce("rejected", async () => {
     const ownerId = useAuth.getState().authUser?._id;
     try {
       const { data } = await axiosInstance.get("/messages/rejected");
@@ -202,7 +276,7 @@ export const useChatStore = create((set, get) => ({
     } catch {
       // Non-critical list; the Requests tab still works without it.
     }
-  },
+  }, options),
   searchUsers: async (query) => {
     if (!query.trim()) return set({ searchResults: [] });
     try { const { data } = await axiosInstance.get("/messages/search", { params: { q: query } }); set({ searchResults: data }); }
@@ -210,37 +284,74 @@ export const useChatStore = create((set, get) => ({
   },
   getMessages: async (userId) => {
     const token = get().loadToken + 1;
-    set({ isMessageLoading: true, loadToken: token, hasMore: false, messages: [] });
+    const key = String(userId);
+    const stillHere = () => get().loadToken === token && idsEqual(get().selectedUser?._id, userId);
+    const conversationId = conversationIdForUser(get(), userId);
+    const unlock = unlockHeaderFor(get(), conversationId);
+    const knownLocked = Boolean(chatEntryFor(get(), userId)?.locked) && !unlock["x-chat-unlock"];
+    set({ isMessageLoading: true, loadToken: token, hasMore: false, messages: [], lockGate: knownLocked });
+    if (knownLocked) {
+      // Ask for the PIN first; don't fetch or show anything from a locked chat.
+      set({ isMessageLoading: false, conversationLocked: true });
+      return;
+    }
+    let painted = false;
     try {
-      const cached = await readCachedMessages(userId);
-      if (get().loadToken === token && get().selectedUser?._id === userId && cached.length && !get().messages.length) {
-        set({ messages: cached.map(asPendingMessage) });
+      // 1) Instant paint: this session's copy, else the device cache (decrypted locally, no network).
+      const recent = recentChats.get(key);
+      if (recent) {
+        set({ messages: recent.messages, hasMore: recent.hasMore, isMessageLoading: false });
+        painted = true;
+      } else {
+        const cached = await readCachedMessages(userId);
+        if (stillHere() && cached.length) {
+          const peer = get().selectedUser;
+          const fromCache = await Promise.all(cached.map((message) => hydrate(asPendingMessage(message), peer)));
+          if (stillHere()) {
+            set({ messages: fromCache, hasMore: true, isMessageLoading: false });
+            painted = true;
+          }
+        }
       }
-      const { data } = await axiosInstance.get(`/messages/${userId}`, { params: { limit: 30 } });
-      if (get().loadToken !== token || get().selectedUser?._id !== userId) return;
+
+      // 2) Fresh page from the server, swapped in once decrypted (no "please wait" flash).
+      const { data } = await axiosInstance.get(`/messages/${userId}`, { params: { limit: 30 }, headers: unlock });
+      if (!stillHere()) return;
       const page = parseMessagePage(data);
-      await cacheEncryptedMessages(userId, page.messages);
+      const meta = page.conversation ? {
+        conversationStatus: page.conversation.status,
+        conversationInitiatedBy: page.conversation.initiatedBy,
+        openConversationId: page.conversation._id,
+        conversationLocked: Boolean(page.conversation.locked),
+      } : {};
+      // Locked chats are never written to the device cache.
+      cacheEncryptedMessages(userId, page.conversation?.locked ? [] : page.messages).catch(() => {});
       const stubs = page.messages.map(asPendingMessage);
-      set({
-        messages: stubs,
-        hasMore: page.hasMore,
-        isMessageLoading: false,
-        ...(page.conversation ? {
-          conversationStatus: page.conversation.status,
-          conversationInitiatedBy: page.conversation.initiatedBy,
-          openConversationId: page.conversation._id,
-        } : {}),
-      });
+      if (!painted) set({ messages: stubs, hasMore: page.hasMore, isMessageLoading: false, ...meta });
+      else set(meta);
+      // Chats opened from search only learn their id here; load their settings now.
+      if (!conversationId && page.conversation) get().getConversationDetails();
       await waitForEncryptionInit();
       const peer = get().selectedUser;
       const hydrated = await Promise.all(stubs.map((message) => hydrate(message, peer)));
-      if (get().loadToken !== token || get().selectedUser?._id !== userId) return;
-      set({ messages: hydrated });
+      if (!stillHere()) return;
+      // Keep anything that arrived over the socket while we were loading.
+      const fresh = new Set(hydrated.map((message) => String(message._id)));
+      const newest = hydrated[hydrated.length - 1]?.createdAt;
+      const live = get().messages.filter((message) => !fresh.has(String(message._id))
+        && (message.pending || (newest && new Date(message.createdAt) > new Date(newest))));
+      set({ messages: [...hydrated, ...live], hasMore: page.hasMore, isMessageLoading: false });
       set((state) => ({
         chatList: state.chatList.map((chat) => idsEqual(chat.user?._id, userId) ? { ...chat, unreadCount: 0 } : chat),
       }));
+      fetchedAt.set(`messages:${key}`, Date.now());
     } catch (error) {
-      if (get().loadToken !== token) return;
+      if (!stillHere()) return;
+      if (error.response?.status === 423) {
+        recentChats.delete(key);
+        set({ lockGate: true, messages: [], conversationLocked: true });
+        return;
+      }
       toast.error(error.response?.data?.message || "Failed to load messages.");
     } finally {
       if (get().loadToken === token) set({ isMessageLoading: false });
@@ -269,10 +380,11 @@ export const useChatStore = create((set, get) => ({
     try {
       const { data } = await axiosInstance.get(`/messages/${selectedUser._id}`, {
         params: { limit: 30, before: messages[0]._id },
+        headers: unlockHeaderFor(get(), conversationIdForUser(get(), selectedUser._id)),
       });
       if (get().selectedUser?._id !== selectedUser._id) return false;
       const page = parseMessagePage(data);
-      await cacheEncryptedMessages(selectedUser._id, [...page.messages, ...get().messages]);
+      if (!get().conversationLocked) cacheEncryptedMessages(selectedUser._id, [...page.messages, ...get().messages]).catch(() => {});
       const peerId = selectedUser._id;
       const stubs = page.messages.map(asPendingMessage);
       const existing = new Set(get().messages.map((message) => String(message._id)));
@@ -503,8 +615,8 @@ export const useChatStore = create((set, get) => ({
       replyingTo: open && conversation.status !== "accepted" ? null : state.replyingTo,
     }));
     if (conversation.status === "accepted" || conversation.status === "declined") {
-      get().getChats();
-      get().getRejected();
+      get().getChats({ force: true });
+      get().getRejected({ force: true });
     }
   },
   subscribeToMessages: () => {
@@ -544,11 +656,15 @@ export const useChatStore = create((set, get) => ({
           return { messages: next };
         });
       } else if (!mine) {
+        recentChats.delete(String(message.senderId));
+        const known = get().chatList.some((chat) => idsEqual(chat.user?._id, message.senderId));
         set((state) => ({
           chatList: sortChats(state.chatList.map((chat) => idsEqual(chat.user?._id, message.senderId)
-            ? { ...chat, unreadCount: (chat.unreadCount || 0) + 1, updatedAt: message.createdAt, lastPreview: "New message" }
+            ? { ...chat, unreadCount: (chat.unreadCount || 0) + 1, updatedAt: message.createdAt, lastMessage: { _id: message._id, createdAt: message.createdAt, locked: chat.locked, stale: true }, lastPreview: chat.locked ? "🔒 New message" : "New message" }
             : chat)),
         }));
+        // A chat you deleted (or a brand-new one) isn't in the list yet; refresh it.
+        if (!known) get().getChats({ force: true });
         const chat = get().chatList.find((item) => idsEqual(item.user?._id, message.senderId));
         if (!chat?.muted) notifyIncomingMessage({ title: "New message", body: "You have a new message", tag: String(message._id) });
       }
@@ -666,19 +782,38 @@ export const useChatStore = create((set, get) => ({
       if (!payload?.memoryId) return;
       set((state) => ({ memories: state.memories.filter((item) => !idsEqual(item._id, payload.memoryId)) }));
     });
+    socket.off("conversationCleared").on("conversationCleared", (payload) => {
+      if (!payload?.conversationId) return;
+      const openId = conversationIdForUser(get(), get().selectedUser?._id);
+      const peer = get().chatList.find((chat) => idsEqual(chat._id, payload.conversationId))?.user;
+      if (peer) {
+        recentChats.delete(String(peer._id));
+        cacheEncryptedMessages(peer._id, []).catch(() => {});
+      }
+      set((state) => ({ chatList: state.chatList.filter((chat) => !idsEqual(chat._id, payload.conversationId)) }));
+      if (idsEqual(openId, payload.conversationId)) get().closeConversation();
+    });
     socket.off("ritualUpdated").on("ritualUpdated", (payload) => {
       const openId = conversationIdForUser(get(), get().selectedUser?._id);
       if (!idsEqual(openId, payload?.conversationId)) return;
       set({ rituals: payload.rituals || [] });
     });
   },
-  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated", "conversationMetaUpdated", "conversationModeUpdated", "conversationStatusUpdated", "messageReactionAdded", "messageReactionUpdated", "messageReactionRemoved", "conversationMemoryCreated", "conversationMemoryDeleted", "ritualUpdated", "messageHidden", "conversationPinsUpdated", "userLastSeen"].forEach((event) => useAuth.getState().socket?.off(event)),
+  unsubscribeFromMessages: () => ["newMessage", "messagesSeen", "messageEdited", "messageDeleted", "typing", "stopTyping", "conversationRequest", "conversationUpdated", "conversationMoodUpdated", "conversationVibeUpdated", "conversationMetaUpdated", "conversationModeUpdated", "conversationStatusUpdated", "messageReactionAdded", "messageReactionUpdated", "messageReactionRemoved", "conversationMemoryCreated", "conversationMemoryDeleted", "ritualUpdated", "messageHidden", "conversationPinsUpdated", "userLastSeen", "conversationCleared"].forEach((event) => useAuth.getState().socket?.off(event)),
   resetChatState: () => {
     get().unsubscribeFromMessages();
+    recentChats.clear();
+    inflight.clear();
+    fetchedAt.clear();
+    clearDecryptCache();
     set({ ...chatSessionState, loadToken: get().loadToken + 1 });
   },
   closeConversation: () => {
+    const leaving = get();
+    if (leaving.selectedUser && !leaving.conversationLocked) rememberChat(leaving.selectedUser._id, leaving.messages, leaving.hasMore);
     set({
+      unlockTokens: relockedTokens(leaving, conversationIdForUser(leaving, leaving.selectedUser?._id)),
+      lockGate: false,
       selectedUser: null,
       messages: [],
       typing: false,
@@ -718,6 +853,9 @@ export const useChatStore = create((set, get) => ({
       get().closeConversation();
       return;
     }
+    const leaving = get();
+    if (leaving.selectedUser && !leaving.conversationLocked) rememberChat(leaving.selectedUser._id, leaving.messages, leaving.hasMore);
+    const leavingTokens = relockedTokens(leaving, conversationIdForUser(leaving, leaving.selectedUser?._id));
     const match = get().chatList.find((chat) => String(chat.user?._id) === String(selectedUser._id))
       || get().requests.find((request) => String(request.user?._id) === String(selectedUser._id))
       || get().rejected.find((item) => String(item.user?._id) === String(selectedUser._id));
@@ -735,7 +873,9 @@ export const useChatStore = create((set, get) => ({
       myMode: null,
       theirMode: null,
       appearance: { wallpaper: "default", bubbleStyle: "classic" },
-      conversationLocked: false,
+      conversationLocked: Boolean(match?.locked),
+      unlockTokens: leavingTokens,
+      lockGate: false,
       defaultDisappearing: false,
       rituals: [],
       memories: [],
@@ -761,7 +901,7 @@ export const useChatStore = create((set, get) => ({
     const conversationId = conversationIdForUser(get(), selectedUser?._id);
     if (!conversationId) return set({ conversationVibe: "neutral", relationshipType: "", relationshipCustom: "" });
     try {
-      const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}`);
+      const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}`, { headers: unlockHeaderFor(get(), conversationId) });
       if (get().selectedUser?._id !== selectedUser._id) return;
       const myId = useAuth.getState().authUser?._id;
       const peer = (data.participants || []).find((participant) => String(participant._id) !== String(myId));
@@ -833,15 +973,104 @@ export const useChatStore = create((set, get) => ({
     if (!conversationId) return;
     try {
       const { data } = await axiosInstance.patch(`/messages/conversation/${conversationId}/meta`, body);
-      set({
+      set((state) => ({
         relationshipType: data.relationshipType || "",
         relationshipCustom: data.relationshipCustom || "",
-        appearance: data.appearance || get().appearance,
+        appearance: data.appearance || state.appearance,
         conversationLocked: Boolean(data.locked),
         defaultDisappearing: Boolean(data.defaultDisappearing),
-      });
+        chatList: state.chatList.map((chat) => idsEqual(chat._id, conversationId) ? { ...chat, locked: Boolean(data.locked) } : chat),
+      }));
+      return true;
     } catch (error) {
       toast.error(error.response?.data?.message || "Could not update conversation.");
+      return false;
+    }
+  },
+  // ---- Chat lock -------------------------------------------------------------------------
+  setChatLockPin: async ({ pin, currentPin, password }) => {
+    try {
+      await axiosInstance.put("/messages/lock/pin", { pin, currentPin, password });
+      const authUser = useAuth.getState().authUser;
+      if (authUser) useAuth.setState({ authUser: { ...authUser, hasChatLockPin: true } });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error.response?.data?.message || "Could not save the PIN." };
+    }
+  },
+  unlockChat: async (pin) => {
+    const { selectedUser } = get();
+    const conversationId = conversationIdForUser(get(), selectedUser?._id);
+    if (!selectedUser || !conversationId) return { ok: false, message: "Chat not found." };
+    try {
+      const { data } = await axiosInstance.post(`/messages/conversation/${conversationId}/unlock`, { pin });
+      if (!idsEqual(get().selectedUser?._id, selectedUser._id)) return { ok: true };
+      set((state) => ({
+        lockGate: false,
+        unlockTokens: data.token ? { ...state.unlockTokens, [String(conversationId)]: { token: data.token, expiresAt: data.expiresAt } } : state.unlockTokens,
+      }));
+      get().getConversationDetails();
+      get().getMessages(selectedUser._id);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error.response?.data?.message || "Could not unlock this chat." };
+    }
+  },
+  lockChat: async () => {
+    const peerId = get().selectedUser?._id;
+    const conversationId = conversationIdForUser(get(), peerId);
+    const ok = await get().patchConversationMeta({ locked: true });
+    if (!ok) return false;
+    recentChats.delete(String(peerId));
+    cacheEncryptedMessages(peerId, []).catch(() => {});
+    // Hide the preview immediately; the server only sends "locked" for this chat from now on.
+    set((state) => ({
+      unlockTokens: relockedTokens(state, conversationId),
+      chatList: state.chatList.map((chat) => idsEqual(chat._id, conversationId)
+        ? { ...chat, locked: true, lastPreview: "🔒 Locked chat", lastMessage: chat.lastMessage ? { ...chat.lastMessage, locked: true } : chat.lastMessage }
+        : chat),
+    }));
+    get().closeConversation();
+    toast.success("Chat locked. You'll need your PIN to open it.");
+    return true;
+  },
+  removeChatLock: async (pin) => {
+    const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
+    if (!conversationId) return { ok: false, message: "Chat not found." };
+    try {
+      const { data } = await axiosInstance.patch(`/messages/conversation/${conversationId}/meta`, { locked: false, pin });
+      set((state) => ({
+        conversationLocked: Boolean(data.locked),
+        chatList: state.chatList.map((chat) => idsEqual(chat._id, conversationId) ? { ...chat, locked: false } : chat),
+      }));
+      toast.success("Chat lock removed");
+      get().getChats({ force: true });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error.response?.data?.message || "Could not remove the lock." };
+    }
+  },
+  // ---- Delete chat (for me) --------------------------------------------------------------
+  deleteChat: async () => {
+    const peer = get().selectedUser;
+    const conversationId = conversationIdForUser(get(), peer?._id);
+    if (!peer) return false;
+    if (!conversationId) {
+      get().closeConversation();
+      return true;
+    }
+    try {
+      await axiosInstance.delete(`/messages/conversation/${conversationId}`, { headers: unlockHeaderFor(get(), conversationId) });
+      recentChats.delete(String(peer._id));
+      cacheEncryptedMessages(peer._id, []).catch(() => {});
+      get().setDraft(peer._id, "");
+      set((state) => ({ chatList: state.chatList.filter((chat) => !idsEqual(chat._id, conversationId)), messages: [] }));
+      get().closeConversation();
+      toast.success(`Chat with ${peer.fullName} deleted`);
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Could not delete this chat.");
+      return false;
     }
   },
   updateMyMode: async (key, until) => {
@@ -885,7 +1114,7 @@ export const useChatStore = create((set, get) => ({
     const conversationId = conversationIdForUser(get(), get().selectedUser?._id);
     if (!conversationId) return;
     try {
-      const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}/memories`);
+      const { data } = await axiosInstance.get(`/messages/conversation/${conversationId}/memories`, { headers: unlockHeaderFor(get(), conversationId) });
       set({ memories: data });
     } catch (error) {
       toast.error(error.response?.data?.message || "Could not load memories.");

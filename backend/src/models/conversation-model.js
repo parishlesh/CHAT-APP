@@ -83,6 +83,8 @@ const conversationSchema = new mongoose.Schema(
     },
 
     lockedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    // userId -> time they deleted the chat; messages up to then are hidden for that user only.
+    clearedAt: { type: Map, of: Date, default: () => new Map() },
 
     pinnedMessages: [
       {

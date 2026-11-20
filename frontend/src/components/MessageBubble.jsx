@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types */
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Check, CheckCheck, Clock3, Copy, Download, FileText, Forward, Maximize2, MoreVertical, Pencil, Pin, PinOff, Play, Reply, Star, Trash2,
 } from "lucide-react";
@@ -94,12 +95,28 @@ const MenuItem = ({ icon: Icon, label, onClick, danger }) => (
 
 const isPhoneWidth = () => typeof window !== "undefined" && window.matchMedia?.("(max-width: 639px)").matches;
 
-const MessageBubble = ({ message }) => {
-  const { authUser } = useAuth();
+// Each bubble only subscribes to the store fields it uses, and is memoised, so typing, drafts or a
+// new message elsewhere don't re-render every bubble in the chat.
+const MessageBubble = ({ message, highlighted = false, isPinned = false, peerName = "" }) => {
+  const myId = useAuth((state) => state.authUser?._id);
   const {
-    selectedUser, messageMatchIds, setEditingMessage, setReplyingTo, deleteMessage, appearance, reactToMessage, clearReaction,
-    createMemory, conversationStatus, conversationInitiatedBy, pinnedMessages, pinMessage, unpinMessage, openViewer, setForwarding,
-  } = useChatStore();
+    setEditingMessage, setReplyingTo, deleteMessage, bubbleStyle, reactToMessage, clearReaction,
+    createMemory, conversationStatus, conversationInitiatedBy, pinMessage, unpinMessage, openViewer, setForwarding,
+  } = useChatStore(useShallow((state) => ({
+    setEditingMessage: state.setEditingMessage,
+    setReplyingTo: state.setReplyingTo,
+    deleteMessage: state.deleteMessage,
+    bubbleStyle: state.appearance?.bubbleStyle,
+    reactToMessage: state.reactToMessage,
+    clearReaction: state.clearReaction,
+    createMemory: state.createMemory,
+    conversationStatus: state.conversationStatus,
+    conversationInitiatedBy: state.conversationInitiatedBy,
+    pinMessage: state.pinMessage,
+    unpinMessage: state.unpinMessage,
+    openViewer: state.openViewer,
+    setForwarding: state.setForwarding,
+  })));
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuMode, setMenuMode] = useState("popover"); // "sheet" on phones
   const [menuUp, setMenuUp] = useState(false);
@@ -114,15 +131,14 @@ const MessageBubble = ({ message }) => {
   const pressTimer = useRef(null);
   const lastTap = useRef(0);
   const lastMineReaction = useRef(undefined);
-  const mine = String(message.senderId) === String(authUser._id);
-  const canCompose = canComposeInConversation(conversationStatus, conversationInitiatedBy, authUser._id);
+  const mine = String(message.senderId) === String(myId);
+  const canCompose = canComposeInConversation(conversationStatus, conversationInitiatedBy, myId);
   const decrypting = message.decryptStatus === "pending" || isEncryptedText(message.displayText);
   const decryptFailed = message.decryptStatus === "failed";
   const isSystem = message.kind === "system" || Boolean(message.systemEvent);
   const media = mediaOf(message);
-  const isPinned = pinnedMessages.some((pin) => String(pin.messageId) === String(message._id));
   const sentMessage = !message.pending && !String(message._id).startsWith("temp-");
-  const myReaction = (message.reactions || []).find((reaction) => String(reaction.userId) === String(authUser._id));
+  const myReaction = (message.reactions || []).find((reaction) => String(reaction.userId) === String(myId));
 
   const clearPress = () => {
     clearTimeout(pressTimer.current);
@@ -203,7 +219,7 @@ const MessageBubble = ({ message }) => {
       <div id={`msg-${message._id}`} className="ui-msg-enter flex justify-center py-2">
         <p className="max-w-[90%] rounded-full border border-base-300 bg-base-200 px-3 py-1 text-center text-[11px] text-base-content/70">
           {message.systemEvent === "request_declined" && mine
-            ? `You rejected ${selectedUser?.fullName || "this"}'s conversation request.`
+            ? `You rejected ${peerName || "this"}'s conversation request.`
             : message.displayText || "This user has rejected your conversation request."}
         </p>
       </div>
@@ -214,7 +230,7 @@ const MessageBubble = ({ message }) => {
     const key = reaction.key;
     groups[key] = groups[key] || { key, count: 0, mine: false };
     groups[key].count += 1;
-    if (String(reaction.userId) === String(authUser._id)) groups[key].mine = true;
+    if (String(reaction.userId) === String(myId)) groups[key].mine = true;
     return groups;
   }, {}));
 
@@ -251,10 +267,10 @@ const MessageBubble = ({ message }) => {
         )}
 
         <div
-          className={`vl-bubble px-3 py-1.5 shadow-sm ${messageMatchIds.includes(message._id) ? "ring-2 ring-warning" : ""} ${
+          className={`vl-bubble px-3 py-1.5 shadow-sm ${highlighted ? "ring-2 ring-warning" : ""} ${
             mine
-              ? `bg-primary text-primary-content ${bubbleClass(appearance?.bubbleStyle, true)}`
-              : `bg-base-200 text-base-content ${bubbleClass(appearance?.bubbleStyle, false)}`
+              ? `bg-primary text-primary-content ${bubbleClass(bubbleStyle, true)}`
+              : `bg-base-200 text-base-content ${bubbleClass(bubbleStyle, false)}`
           }`}
         >
           {message.deleted ? (
@@ -274,12 +290,12 @@ const MessageBubble = ({ message }) => {
                   onClick={() => document.getElementById(`msg-${message.replyPreview._id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
                 >
                   <p className="font-medium truncate">
-                    {String(message.replyPreview.senderId) === String(authUser._id) ? "You" : selectedUser?.fullName}
+                    {String(message.replyPreview.senderId) === String(myId) ? "You" : peerName}
                   </p>
                   <p className="truncate opacity-80">{replyText(message.replyPreview)}</p>
                 </button>
               )}
-              {media && <MediaContent media={media} mine={mine} onOpen={() => openViewer({ ...media, senderName: mine ? "You" : selectedUser?.fullName, createdAt: message.createdAt })} />}
+              {media && <MediaContent media={media} mine={mine} onOpen={() => openViewer({ ...media, senderName: mine ? "You" : peerName, createdAt: message.createdAt })} />}
               {decrypting && (
                 <p className="vl-msg-text leading-snug opacity-70">Please wait while we are fetching your chat…</p>
               )}
@@ -456,4 +472,4 @@ const MessageBubble = ({ message }) => {
   );
 };
 
-export default MessageBubble;
+export default memo(MessageBubble);

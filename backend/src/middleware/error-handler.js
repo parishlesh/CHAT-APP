@@ -16,7 +16,10 @@ export function errorHandler(err, req, res, next) {
   if (err.code === 11000) {
     return res.status(400).json({ message: "Already exists." });
   }
-  res.status(status).json({ message: publicMessage || "Request failed." });
+  res.status(status).json({
+    message: publicMessage || "Request failed.",
+    ...(typeof err.code === "string" ? { code: err.code } : {}),
+  });
 }
 
 export function notFound(_req, res) {

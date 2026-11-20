@@ -1,1 +1,63 @@
-backend/.env
+# ---------------------------------------------------------------
+# VibeLink monorepo (frontend/ + backend/)
+# ---------------------------------------------------------------
+
+# Dependencies (reinstall with `npm ci`)
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/install-state.gz
+
+# Environment files: secrets never go in git.
+# The *.example files document the variables and stay tracked.
+.env
+.env.*
+!.env.example
+
+# Build output and tool caches
+dist/
+build/
+.vite/
+*.tsbuildinfo
+.eslintcache
+.cache/
+
+# Tests and coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Logs and PM2 runtime files
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pm2/
+
+# Local data (Mongo/Redis dumps, uploads, temp files)
+*.pid
+*.seed
+*.tgz
+tmp/
+temp/
+dump.rdb
+mongo-data/
+
+# Editors and AI tools: keep shared VS Code settings, ignore the rest
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+.cursor/
+.agents/
+.claude/
+*.swp
+*.swo
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini

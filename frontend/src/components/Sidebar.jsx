@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { LogOut, MessageCircle, Search, Settings, User, UserPlus, Users, X } from "lucide-react";
+import { Lock, LogOut, MessageCircle, Search, Settings, User, UserPlus, Users, X } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "../store/useChatStore";
 import { useAuth } from "../store/useAuth";
 import { useThemeStore } from "../store/useThemeStore";
@@ -10,7 +11,28 @@ import { formatAvailability } from "../config/conversationExtras";
 import { getVibeMeta } from "../config/conversationVibes";
 
 const Sidebar = () => {
-  const { chatList, requests, searchResults, activeTab, setActiveTab, selectedUser, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages, requestBusy, drafts, rejected, getRejected, chatsLoaded } = useChatStore();
+  const {
+    chatList, requests, searchResults, activeTab, setActiveTab, selectedUser, setSelectedUser, getChats, getRequests, searchUsers, respondToRequest, subscribeToMessages, unsubscribeFromMessages, requestBusy, drafts, rejected, getRejected, chatsLoaded,
+  } = useChatStore(useShallow((state) => ({
+    chatList: state.chatList,
+    requests: state.requests,
+    searchResults: state.searchResults,
+    activeTab: state.activeTab,
+    setActiveTab: state.setActiveTab,
+    selectedUser: state.selectedUser,
+    setSelectedUser: state.setSelectedUser,
+    getChats: state.getChats,
+    getRequests: state.getRequests,
+    searchUsers: state.searchUsers,
+    respondToRequest: state.respondToRequest,
+    subscribeToMessages: state.subscribeToMessages,
+    unsubscribeFromMessages: state.unsubscribeFromMessages,
+    requestBusy: state.requestBusy,
+    drafts: state.drafts,
+    rejected: state.rejected,
+    getRejected: state.getRejected,
+    chatsLoaded: state.chatsLoaded,
+  })));
   const { onlineUsers, authUser, isLogout } = useAuth();
   const { appliedAppTheme } = useThemeStore();
   const [query, setQuery] = useState("");
@@ -120,7 +142,7 @@ const Sidebar = () => {
                 : chat?.status === "declined"
                   ? (chat.lastPreview || "Request declined")
                   : chat?.lastPreview || "No messages yet";
-          const draft = !selected && !query.trim() && drafts[String(user._id)];
+          const draft = !selected && !query.trim() && !chat?.locked && drafts[String(user._id)];
           const vibe = chat?.conversationVibe && chat.conversationVibe !== "neutral" ? getVibeMeta(chat.conversationVibe) : null;
           const availability = formatAvailability(user.availability);
           const time = chat?.lastMessage?.createdAt || chat?.updatedAt;
@@ -135,7 +157,10 @@ const Sidebar = () => {
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline justify-between gap-2">
-                      <span className={`truncate text-[15px] ${unread ? "font-bold" : "font-semibold"}`}>{user.fullName}{getMoodMeta(user.mood) ? ` ${getMoodMeta(user.mood).emoji}` : ""}</span>
+                      <span className={`flex min-w-0 items-center gap-1 truncate text-[15px] ${unread ? "font-bold" : "font-semibold"}`}>
+                        <span className="truncate">{user.fullName}{getMoodMeta(user.mood) ? ` ${getMoodMeta(user.mood).emoji}` : ""}</span>
+                        {chat?.locked && <Lock size={12} className="shrink-0 text-base-content/50" aria-label="Locked chat" />}
+                      </span>
                       {time && !request && !query.trim() && <span className={`shrink-0 text-[11px] ${unread ? "font-semibold text-primary" : "text-base-content/50"}`}>{formatChatListTime(time)}</span>}
                     </span>
                     <span className="flex items-center justify-between gap-2">

@@ -41,6 +41,12 @@ export const otpVerifyLimiter = limiter({
   message: { message: "Too many attempts" },
 }, "vl:rl:otp-verify:");
 
+export const pinLimiter = limiter({
+  windowMs,
+  max: 20,
+  message: { message: "Too many PIN attempts. Try again in a few minutes." },
+}, "vl:rl:pin:");
+
 export const apiLimiter = limiter({
   windowMs: 60 * 1000,
   max: 300,

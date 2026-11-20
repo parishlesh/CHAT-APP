@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import ScrollContainer from "../components/scrollbarContainer";
 import ChangePasswordPanel from "../components/ChangePasswordPanel";
 import PersonalizePanel from "../components/PersonalizePanel";
+import ChatLockPinPanel from "../components/ChatLockPinPanel";
 
 const Settings = () => {
   const { appliedAppTheme, previewAppTheme, setPreviewAppTheme, resetPreviewAppTheme, applyAppTheme } = useThemeStore();
@@ -94,6 +95,7 @@ const Settings = () => {
           </div>
 
           <div className="divider my-0" />
+          <ChatLockPinPanel />
           <ChangePasswordPanel />
         </div>
       </div>

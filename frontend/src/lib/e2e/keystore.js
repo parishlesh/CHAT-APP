@@ -296,14 +296,19 @@ export const hasStoredPrivateKey = (userId) => {
   }
 };
 
+const MAX_CACHED_MESSAGES_PER_CHAT = 150;
+
 export const cacheEncryptedMessages = async (peerId, messages) => {
   const id = userIdOf(peerId);
   if (!id || !Array.isArray(messages)) return;
-  const records = messages.map((message) => ({
+  const records = messages.slice(-MAX_CACHED_MESSAGES_PER_CHAT).map((message) => ({
     id: String(message._id),
     conversationPeerId: id,
     text: message.text || "",
     image: message.image || "",
+    attachment: message.attachment || null,
+    forwarded: Boolean(message.forwarded),
+    reactions: message.reactions || [],
     senderId: message.senderId,
     receiverId: message.receiverId,
     createdAt: message.createdAt,

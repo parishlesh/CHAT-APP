@@ -782,7 +782,28 @@ const diagnosticContext = async (me, peer, text, extra = {}) => ({
   ...extra,
 });
 
+// Decrypting is the slowest part of showing a chat (an ECDH key agreement per message), and the
+// same ciphertext gets decrypted again on every list refresh, reopen and retry. Successful results
+// are kept in memory (never on disk) so repeats are instant. Cleared on logout.
+const DECRYPT_CACHE_LIMIT = 4000;
+const decryptCache = new Map();
+
+export const clearDecryptCache = () => decryptCache.clear();
+
 export async function decryptMessage(text, me, peer, meta = {}) {
+  if (!text || !isEncryptedText(text)) return decryptMessageUncached(text, me, peer, meta);
+  const key = `${userIdOf(me)}|${text}`;
+  const hit = decryptCache.get(key);
+  if (hit) return hit;
+  const result = await decryptMessageUncached(text, me, peer, meta);
+  if (result.status === "decrypted") {
+    if (decryptCache.size >= DECRYPT_CACHE_LIMIT) decryptCache.delete(decryptCache.keys().next().value);
+    decryptCache.set(key, result);
+  }
+  return result;
+}
+
+async function decryptMessageUncached(text, me, peer, meta = {}) {
   if (!text) return { status: "decrypted", text: "", reason: null };
   if (!isEncryptedText(text)) return { status: "decrypted", text, reason: null };
   if (!window.crypto?.subtle) {

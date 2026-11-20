@@ -11,6 +11,7 @@ import {
 import { loadParticipantConversation, serializeConversation, participantId } from "./message-controller.js";
 import { requireObjectId } from "../lib/validate.js";
 import { assertCanSendMessage, reachablePeerIds } from "../lib/conversation-access.js";
+import { assertUnlocked, isLockedFor, pinMatches } from "../lib/chat-lock.js";
 
 const emitToOthers = (conversation, myId, event, payload) => {
   conversation.participants.forEach((participant) => {
@@ -46,9 +47,17 @@ export const patchConversationMeta = asyncHandler(async (req, res) => {
   }
   if (typeof locked === "boolean") {
     conversation.lockedBy = conversation.lockedBy || [];
-    const mine = conversation.lockedBy.some((id) => String(id) === String(req.user._id));
-    if (locked && !mine) conversation.lockedBy.push(req.user._id);
-    if (!locked) conversation.lockedBy = conversation.lockedBy.filter((id) => String(id) !== String(req.user._id));
+    const mine = isLockedFor(conversation, req.user._id);
+    const owner = await User.findById(req.user._id).select("chatLockPinHash");
+    if (locked && !mine) {
+      if (!owner?.chatLockPinHash) throw new AppError(400, "Set a chat lock PIN first.");
+      conversation.lockedBy.push(req.user._id);
+    }
+    if (!locked && mine) {
+      // Removing a lock needs the PIN, otherwise anyone holding the phone could just switch it off.
+      if (!(await pinMatches(owner, req.body.pin))) throw new AppError(401, "Wrong PIN.");
+      conversation.lockedBy = conversation.lockedBy.filter((id) => String(id) !== String(req.user._id));
+    }
   }
   if (typeof defaultDisappearing === "boolean") conversation.defaultDisappearing = defaultDisappearing;
   await conversation.save();
@@ -92,7 +101,7 @@ export const updateAvailability = asyncHandler(async (req, res) => {
 });
 
 export const listMemories = asyncHandler(async (req, res) => {
-  await loadParticipantConversation(req.params.conversationId, req.user._id);
+  assertUnlocked(req, await loadParticipantConversation(req.params.conversationId, req.user._id));
   const memories = await Memory.find({ conversationId: req.params.conversationId }).sort({ createdAt: -1 }).limit(100);
   res.status(200).json(memories);
 });

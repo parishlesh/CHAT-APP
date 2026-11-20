@@ -68,6 +68,9 @@ const userSchema = new mongoose.Schema(
 
     lastSeen: { type: Date, default: null },
 
+    // bcrypt hash of the PIN that guards locked chats (see lib/chat-lock.js).
+    chatLockPinHash: { type: String, default: null },
+
     blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 
     availability: {

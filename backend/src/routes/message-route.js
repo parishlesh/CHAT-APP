@@ -1,7 +1,7 @@
 import express from "express";
 import protectRoute from "../middleware/auth-middleware.js";
-import { searchLimiter, sendLimiter } from "../middleware/rate-limit.js";
-import { acceptRequest, deleteMessage, editMessage, getChats, getConversationDetails, getConversationMood, getMessages, getRequests, getRejected, getUsersForSidebar, rejectRequest, removeMessageReaction, getUploadSignature, pinMessage, unpinMessage, setBlocked, searchConversationMessages, searchUsers, sendMessage, updateConversationMood, updateConversationMute, updateConversationVibe, upsertMessageReaction } from "../controllers/message-controller.js";
+import { pinLimiter, searchLimiter, sendLimiter } from "../middleware/rate-limit.js";
+import { acceptRequest, deleteMessage, editMessage, getChats, getConversationDetails, getConversationMood, getMessages, getRequests, getRejected, getUsersForSidebar, rejectRequest, removeMessageReaction, getUploadSignature, pinMessage, unpinMessage, setBlocked, deleteConversation, unlockConversation, setChatLockPin, searchConversationMessages, searchUsers, sendMessage, updateConversationMood, updateConversationMute, updateConversationVibe, upsertMessageReaction } from "../controllers/message-controller.js";
 import { createMemory, deleteMemory, deleteRitual, listMemories, patchConversationMeta, updateAvailability, updateParticipantMode, upsertRitual } from "../controllers/conversation-features-controller.js";
 
 const router = express.Router();
@@ -23,6 +23,9 @@ router.delete("/conversation/:conversationId/rituals/:key", protectRoute, delete
 router.put("/me/availability", protectRoute, updateAvailability);
 router.post("/media/signature", protectRoute, sendLimiter, getUploadSignature);
 router.put("/block/:userId", protectRoute, setBlocked);
+router.put("/lock/pin", protectRoute, pinLimiter, setChatLockPin);
+router.post("/conversation/:conversationId/unlock", protectRoute, pinLimiter, unlockConversation);
+router.delete("/conversation/:conversationId", protectRoute, deleteConversation);
 router.put("/conversation/:conversationId/pins/:messageId", protectRoute, pinMessage);
 router.delete("/conversation/:conversationId/pins/:messageId", protectRoute, unpinMessage);
 router.put("/:messageId/reaction", protectRoute, upsertMessageReaction);

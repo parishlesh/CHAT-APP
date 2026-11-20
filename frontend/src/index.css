@@ -260,6 +260,12 @@ html[data-vl-font] select {
   button, a { -webkit-tap-highlight-color: transparent; }
 }
 
+@keyframes ui-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ui-press,
   .ui-option {

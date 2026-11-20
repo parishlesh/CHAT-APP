@@ -1,4 +1,9 @@
+# See the root .gitignore for shared rules; these are frontend-specific.
 node_modules/
 dist/
-.env.production
-node_modules
+dist-ssr/
+.vite/
+.env
+.env.*
+!.env.example
+*.local

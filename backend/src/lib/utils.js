@@ -49,6 +49,7 @@ export const toSelfUser = (user) => {
     availability: value.availability,
     lastSeen: value.lastSeen || null,
     createdAt: value.createdAt || null,
+    hasChatLockPin: Boolean(value.chatLockPinHash),
     blockedUsers: (value.blockedUsers || []).map((id) => String(id)),
     encryptionPublicKey: value.encryptionPublicKey || null,
     encryptionKeyBackup: value.encryptionKeyBackup != null ? value.encryptionKeyBackup : null,

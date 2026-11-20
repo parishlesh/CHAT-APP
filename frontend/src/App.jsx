@@ -1,19 +1,25 @@
 import Navbar from './components/Navbar'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Home from './pages/Home'
-import Signup from './pages/Signup'
 import Login from './pages/Login'
-import ForgotPassword from './pages/ForgotPassword'
-import Settings from './pages/Settings'
-import Profile from './pages/Profile'
 import { useAuth } from './store/useAuth'
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { Loader } from 'lucide-react'
 import { Toaster } from 'react-hot-toast'
 import { useThemeStore } from './store/useThemeStore'
 import { usePersonalizationStore } from './store/usePersonalizationStore'
 import BrandMark from './components/BrandMark'
 import EncryptionRecoveryBanner from './components/EncryptionRecoveryBanner'
+
+// Pages you don't need on first load are fetched on demand to keep the initial download small.
+const Signup = lazy(() => import('./pages/Signup'))
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Profile = lazy(() => import('./pages/Profile'))
+
+const PageFallback = () => (
+  <div className="flex h-full items-center justify-center"><Loader className="size-6 animate-spin text-primary" /></div>
+)
 
 const App = () => {
   const { authUser, checkAuth, isCheckingAuth } = useAuth();
@@ -51,6 +57,7 @@ const App = () => {
         className={`min-h-0 min-w-0 flex-1 ${authUser ? "overflow-hidden" : "overflow-y-auto overscroll-contain"}`}
         data-theme={appliedAppTheme}
       >
+        <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/" element={authUser ? <Home /> : <Navigate to="/login" />} />
           <Route path="/signup" element={!authUser ? <Signup /> : <Navigate to="/" />} />
@@ -59,6 +66,7 @@ const App = () => {
           <Route path="/settings" element={authUser ? <Settings /> : <Navigate to="/login" />} />
           <Route path="/profile" element={authUser ? <Profile /> : <Navigate to="/login" />} />
         </Routes>
+        </Suspense>
       </div>
       </div>
       <Toaster

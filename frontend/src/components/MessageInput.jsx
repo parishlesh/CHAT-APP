@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { Camera, FileText, Image as ImageIcon, Mic, Paperclip, Send, Smile, Timer, X } from "lucide-react";
 import toast from "react-hot-toast";
@@ -9,9 +9,10 @@ import { canComposeInConversation } from "../lib/conversationAccess";
 import {
   compressPhoto, formatBytes, formatDuration, kindForFile, mediaLabel, probeMedia, uploadMedia, validateFileForUpload,
 } from "../lib/media";
-import CameraCapture from "./CameraCapture";
-import VoiceRecorder from "./VoiceRecorder";
-import EmojiPicker from "./EmojiPicker";
+// Loaded the first time they're opened, not with the chat screen.
+const CameraCapture = lazy(() => import("./CameraCapture"));
+const VoiceRecorder = lazy(() => import("./VoiceRecorder"));
+const EmojiPicker = lazy(() => import("./EmojiPicker"));
 
 const TYPING_PING_MS = 2000;
 
@@ -330,11 +331,13 @@ const MessageInput = () => {
 
       <div className="flex items-end gap-1">
         {recording ? (
-          <VoiceRecorder
-            onCancel={() => { setRecording(false); stopTyping(); }}
-            onSend={sendVoiceNote}
-            onActivity={() => pingActivity("recording")}
-          />
+          <Suspense fallback={<div className="flex-1 rounded-2xl bg-base-200 px-3 py-2.5 text-sm text-base-content/60">Starting microphone…</div>}>
+            <VoiceRecorder
+              onCancel={() => { setRecording(false); stopTyping(); }}
+              onSend={sendVoiceNote}
+              onActivity={() => pingActivity("recording")}
+            />
+          </Suspense>
         ) : (
           <>
             {!editingMessage && (
@@ -348,7 +351,7 @@ const MessageInput = () => {
                 >
                   <Smile size={21} />
                 </button>
-                {emojiOpen && <EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} />}
+                {emojiOpen && <Suspense fallback={null}><EmojiPicker onPick={insertEmoji} onClose={() => setEmojiOpen(false)} /></Suspense>}
                 <button
                   type="button"
                   className="ui-press mb-0.5 rounded-full p-2 hover:bg-base-200 disabled:opacity-40"
@@ -438,7 +441,7 @@ const MessageInput = () => {
           </>
         )}
       </div>
-      {cameraOpen && <CameraCapture onClose={() => setCameraOpen(false)} onCapture={attachFile} />}
+      {cameraOpen && <Suspense fallback={null}><CameraCapture onClose={() => setCameraOpen(false)} onCapture={attachFile} /></Suspense>}
     </form>
   );
 };
